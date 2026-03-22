@@ -1,0 +1,7 @@
+[install]
+# 使用严格的包管理
+peer = false
+
+[run]
+# 自动加载 .env 文件
+shell = "bun"

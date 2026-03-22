@@ -1,0 +1,19 @@
+{
+  "name": "aiagent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI Agent 桌面应用 — 基于 Claude Agent SDK 的全功能 Agent 管理平台",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "sidecar"
+  ],
+  "scripts": {
+    "dev": "bun run --filter @aiagent/desktop dev",
+    "build": "bun run --filter @aiagent/desktop build",
+    "tauri:dev": "bun run --filter @aiagent/desktop tauri dev",
+    "tauri:build": "bun run --filter @aiagent/desktop tauri build",
+    "sidecar:dev": "bun run --filter @aiagent/sidecar dev",
+    "sidecar:build": "bun run --filter @aiagent/sidecar build"
+  }
+}

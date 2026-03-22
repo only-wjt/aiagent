@@ -1,0 +1,34 @@
+# 依赖
+node_modules/
+.bun/
+
+# 构建输出
+dist/
+target/
+*.exe
+*.dll
+
+# 环境变量
+.env
+.env.local
+.env.*.local
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 日志
+*.log
+npm-debug.log*
+
+# Tauri
+apps/desktop/src-tauri/target/
+
+# Sidecar 编译产物
+sidecar/sidecar-binary*

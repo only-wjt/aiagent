@@ -1,0 +1,84 @@
+/**
+ * Pinia Store — 工作区管理
+ *
+ * 工作区配置通过 Tauri IPC 持久化到 ~/.aiagent/workspaces.json。
+ */
+
+import { defineStore } from 'pinia'
+import { ref } from 'vue'
+
+// 尝试导入 Tauri API
+let invoke: ((cmd: string, args?: Record<string, unknown>) => Promise<unknown>) | null = null
+try {
+  const tauri = await import('@tauri-apps/api/core')
+  invoke = tauri.invoke
+} catch {
+  console.warn('[WorkspaceStore] Tauri API 不可用')
+}
+
+/** 工作区定义 */
+export interface Workspace {
+  id: string
+  name: string
+  path: string
+}
+
+export const useWorkspaceStore = defineStore('workspace', () => {
+  const workspaces = ref<Workspace[]>([])
+  const isLoaded = ref(false)
+
+  async function init () {
+    if (isLoaded.value) return
+    await load()
+    isLoaded.value = true
+  }
+
+  async function load () {
+    if (!invoke) return
+    try {
+      const json = await invoke('cmd_read_json', { filename: 'workspaces.json' }) as string
+      if (json && json !== 'null') {
+        const saved: Workspace[] = JSON.parse(json)
+        if (saved.length > 0) {
+          workspaces.value = saved
+        }
+      }
+    } catch (e) {
+      console.error('[WorkspaceStore] 加载失败:', e)
+    }
+  }
+
+  async function save () {
+    if (!invoke) return
+    try {
+      await invoke('cmd_write_json', {
+        filename: 'workspaces.json',
+        data: JSON.stringify(workspaces.value),
+      })
+    } catch (e) {
+      console.error('[WorkspaceStore] 保存失败:', e)
+    }
+  }
+
+  async function addWorkspace (name: string, path: string) {
+    workspaces.value.push({
+      id: `ws-${Date.now()}`,
+      name: name.trim(),
+      path: path.trim() || '~',
+    })
+    await save()
+  }
+
+  async function removeWorkspace (id: string) {
+    workspaces.value = workspaces.value.filter(w => w.id !== id)
+    await save()
+  }
+
+  return {
+    workspaces,
+    isLoaded,
+    init,
+    addWorkspace,
+    removeWorkspace,
+  }
+})
