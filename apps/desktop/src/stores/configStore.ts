@@ -8,6 +8,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { PROVIDER_TEMPLATES, type ProviderStatus } from '@aiagent/shared'
+import { apiFetch } from '../utils/http'
 
 // 尝试导入 Tauri API
 let invoke: ((cmd: string, args?: Record<string, unknown>) => Promise<unknown>) | null = null
@@ -36,6 +37,7 @@ export interface ProviderView {
   status: ProviderStatus
   endpointType: string
   icon: string
+  isCustom?: boolean
   models: ModelView[]
 }
 
@@ -88,6 +90,13 @@ export const useConfigStore = defineStore('config', () => {
     await loadProviders()
     await loadAppConfig()
     isLoaded.value = true
+    // 自动为已配置 API Key 但模型列表为空的供应商获取模型
+    for (const p of providers.value) {
+      if (p.apiKey && p.models.length === 0) {
+        console.log(`[ConfigStore] 自动获取模型: ${p.name}`)
+        fetchModels(p.id).catch(e => console.error(`[ConfigStore] 自动获取模型失败: ${p.name}`, e))
+      }
+    }
   }
 
   /** 加载供应商列表（全走 Tauri IPC） */
@@ -162,13 +171,14 @@ export const useConfigStore = defineStore('config', () => {
     if (!provider || !provider.apiKey) return false
 
     try {
-      let response: Response
-
       const endpointType = provider.endpointType || 'anthropic'
+      const base = provider.baseUrl.replace(/\/+$/, '')
+      let testUrl: string
+      let fetchOptions: RequestInit
 
       if (endpointType === 'anthropic') {
-        // Anthropic：发送最小请求测试
-        response = await fetch(`${provider.baseUrl}/v1/messages`, {
+        testUrl = `${base}/v1/messages`
+        fetchOptions = {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -180,23 +190,30 @@ export const useConfigStore = defineStore('config', () => {
             max_tokens: 1,
             messages: [{ role: 'user', content: 'hi' }],
           }),
-        })
+        }
       } else if (endpointType === 'gemini') {
-        // Gemini：列出可用模型
-        const base = provider.baseUrl.replace(/\/+$/, '')
-        response = await fetch(`${base}/v1beta/models?key=${provider.apiKey}`)
+        testUrl = `${base}/v1beta/models?key=${provider.apiKey}`
+        fetchOptions = {}
       } else {
-        // OpenAI / OpenAI-compatible：列出模型
-        const base = provider.baseUrl.replace(/\/+$/, '')
-        response = await fetch(`${base}/models`, {
+        // openai-compatible / openai-responses / 其他：统一用 /v1/models 测试
+        testUrl = `${base}/v1/models`
+        fetchOptions = {
           headers: { 'Authorization': `Bearer ${provider.apiKey}` },
-        })
+        }
       }
 
-      provider.status = response.ok ? 'active' : 'error'
+      console.log(`[ConfigStore] 测试连接: ${testUrl}`)
+      const response = await apiFetch(testUrl, fetchOptions)
+      console.log(`[ConfigStore] 测试连接响应: ${response.status}`)
+
+      // 只要收到 HTTP 响应就算连接成功（端点可达）
+      // 401/403 说明端点可达但 Key 可能有问题，仍视为"可连接"
+      // 只有 fetch 抛异常（网络不通）才算失败
+      provider.status = 'active'
       await saveProviders()
-      return response.ok
-    } catch {
+      return true
+    } catch (e) {
+      console.error('[ConfigStore] 测试连接失败:', e)
       provider.status = 'error'
       await saveProviders()
       return false
@@ -253,9 +270,9 @@ export const useConfigStore = defineStore('config', () => {
     let modelIds: string[] = []
 
     try {
-      if (endpointType === 'openai' || endpointType === 'openai-compatible' || endpointType === 'deepseek') {
+      if (endpointType === 'openai' || endpointType === 'openai-compatible' || endpointType === 'openai-responses' || endpointType === 'deepseek') {
         // OpenAI 兼容：GET /v1/models
-        const resp = await fetch(`${base}/v1/models`, {
+        const resp = await apiFetch(`${base}/v1/models`, {
           headers: { 'Authorization': `Bearer ${provider.apiKey}` },
         })
         if (resp.ok) {
@@ -264,7 +281,7 @@ export const useConfigStore = defineStore('config', () => {
         }
       } else if (endpointType === 'anthropic') {
         // Anthropic：GET /v1/models
-        const resp = await fetch(`${base}/v1/models`, {
+        const resp = await apiFetch(`${base}/v1/models`, {
           headers: {
             'x-api-key': provider.apiKey,
             'anthropic-version': '2023-06-01',

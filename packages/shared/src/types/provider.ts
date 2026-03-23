@@ -46,7 +46,7 @@ export interface ProviderTemplate {
   baseUrl: string
   icon: string
   /** 兼容端点类型 */
-  endpointType: 'anthropic' | 'openai'
+  endpointType: 'anthropic' | 'openai' | 'openai-responses'
 }
 
 /** 内置供应商模板列表 */

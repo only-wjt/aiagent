@@ -14,6 +14,11 @@ const router = createRouter({
       component: () => import('../views/Chat.vue'),
     },
     {
+      path: '/agent/:sessionId?',
+      name: 'agent',
+      component: () => import('../views/Agent.vue'),
+    },
+    {
       path: '/settings',
       name: 'settings',
       component: () => import('../views/Settings.vue'),

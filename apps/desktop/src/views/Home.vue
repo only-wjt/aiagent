@@ -15,7 +15,26 @@
             @keydown.enter="startChat"
           />
           <div class="quick-input-actions">
-            <span class="model-selector">Claude Sonnet 4</span>
+            <div class="model-picker-wrapper">
+              <span class="model-badge" @click="showModelPicker = !showModelPicker">
+                {{ selectedModel || '选择模型' }} ▾
+              </span>
+              <div v-if="showModelPicker" class="model-dropdown card">
+                <div v-if="availableModels.length === 0" class="model-option" style="opacity:0.5;cursor:default">
+                  无可用模型，请在设置中启用
+                </div>
+                <div
+                  v-for="m in availableModels"
+                  :key="m.id"
+                  class="model-option"
+                  :class="{ active: selectedModel === m.id }"
+                  @click="selectedModel = m.id; showModelPicker = false"
+                >
+                  <span class="model-option-name">{{ m.name }}</span>
+                  <span class="model-option-desc">{{ m.providerName }}</span>
+                </div>
+              </div>
+            </div>
             <button class="btn btn-primary btn-send" @click="startChat">
               发送
             </button>
@@ -40,32 +59,7 @@
       </div>
     </div>
 
-    <!-- 最近对话 -->
-    <div class="section animate-slide-up" style="animation-delay: 0.1s">
-      <div class="section-header">
-        <h2 class="section-title">最近对话</h2>
-        <span class="section-subtitle" v-if="recentConversations.length">共 {{ chatStore.conversations.length }} 个</span>
-        <span class="section-subtitle" v-else>还没有对话记录</span>
-      </div>
-      <div v-if="recentConversations.length > 0" class="workspace-grid">
-        <div
-          v-for="conv in recentConversations"
-          :key="conv.id"
-          class="workspace-card card card-interactive"
-          @click="openConversation(conv.id)"
-        >
-          <div class="workspace-icon"><MessageSquare :size="24" stroke-width="1.5" /></div>
-          <div class="workspace-info">
-            <h3 class="workspace-name">{{ conv.title || '新对话' }}</h3>
-            <p class="workspace-path">{{ conv.preview || `${conv.messageCount} 条消息` }}</p>
-          </div>
-        </div>
-      </div>
-      <div v-else class="empty-state">
-        <ClipboardList class="empty-icon" :size="48" stroke-width="1" />
-        <p>开始你的第一次对话吧</p>
-      </div>
-    </div>
+
 
     <!-- Agent 工作区 -->
     <div class="section animate-slide-up" style="animation-delay: 0.2s">
@@ -80,7 +74,7 @@
           <div class="workspace-icon"><Bot :size="24" stroke-width="1.5" /></div>
           <div class="workspace-info">
             <h3 class="workspace-name">默认工作区</h3>
-            <p class="workspace-path">~/Documents</p>
+            <p class="workspace-path">~/Documents/aiagent</p>
           </div>
         </div>
 
@@ -133,18 +127,25 @@
 import { ref, reactive, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useChatStore } from '../stores/chatStore'
+import { useConfigStore } from '../stores/configStore'
 import { useWorkspaceStore } from '../stores/workspaceStore'
-import { Code2, Globe, FileText, Search, MessageSquare, ClipboardList, Bot, Plus, X, Folder } from 'lucide-vue-next'
+import { Code2, Globe, FileText, Search, Bot, Plus, X, Folder } from 'lucide-vue-next'
 
 const router = useRouter()
 const chatStore = useChatStore()
+const configStore = useConfigStore()
 const workspaceStore = useWorkspaceStore()
 const quickPrompt = ref('')
 const showNewWorkspace = ref(false)
 const newWs = reactive({ name: '', path: '' })
 
-// 最近 5 个对话
-const recentConversations = computed(() => chatStore.conversations.slice(0, 5))
+// 可用模型列表（只显示用户勾选启用的模型）
+const availableModels = computed(() => configStore.allEnabledModels())
+const selectedModel = ref(chatStore.currentModel)
+const showModelPicker = ref(false)
+
+// 最近 5 个对话（不再使用）
+// const recentConversations = computed(() => chatStore.conversations.slice(0, 5))
 
 function startChat() {
   const prompt = quickPrompt.value.trim()
@@ -152,13 +153,10 @@ function startChat() {
     router.push('/chat')
     return
   }
+  // 设置选择的模型
+  chatStore.currentModel = selectedModel.value
   sessionStorage.setItem('quickPrompt', prompt)
   quickPrompt.value = ''
-  router.push('/chat')
-}
-
-async function openConversation(id: string) {
-  await chatStore.loadConversation(id)
   router.push('/chat')
 }
 
@@ -236,16 +234,43 @@ function openWorkspace(id: string) {
 
 .quick-input-actions { display: flex; align-items: center; justify-content: space-between; margin-top: var(--space-sm); }
 
-.model-selector {
+.model-picker-wrapper {
+  position: relative;
+}
+.model-badge {
   font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
-  padding: 4px 8px;
+  color: var(--color-primary);
+  padding: 4px 10px;
   border-radius: var(--radius-sm);
-  background: var(--color-bg-secondary);
+  background: var(--color-primary-bg);
   cursor: pointer;
   transition: all var(--transition-fast);
+  white-space: nowrap;
 }
-.model-selector:hover { background: var(--color-bg-tertiary); }
+.model-badge:hover { opacity: 0.8; }
+.model-dropdown {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 4px;
+  min-width: 240px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 4px 0;
+  box-shadow: var(--shadow-lg);
+  border-radius: var(--radius-md);
+  z-index: 100;
+}
+.model-option {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 12px; cursor: pointer;
+  transition: all var(--transition-fast);
+  font-size: var(--font-size-sm);
+}
+.model-option:hover { background: var(--color-bg-hover); }
+.model-option.active { background: var(--color-primary-bg); color: var(--color-primary); }
+.model-option-name { color: var(--color-text-primary); }
+.model-option-desc { font-size: var(--font-size-xs); color: var(--color-text-tertiary); }
 
 .btn-send { padding: 6px 16px; }
 

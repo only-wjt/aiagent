@@ -36,30 +36,59 @@
         class="message-row animate-slide-up"
         :class="msg.role"
       >
-        <!-- AI 消息：左侧气泡 -->
+        <!-- AI 消息：左侧 -->
         <template v-if="msg.role === 'assistant'">
           <div class="message-avatar"><Bot :size="20" stroke-width="1.5" /></div>
-          <div class="message-bubble bubble-assistant">
-            <div class="message-body" v-html="renderMarkdown(getMessageText(msg))"></div>
-            <div v-if="msg.usage" class="message-meta">{{ msg.usage }}</div>
-            <span class="message-time">{{ formatTime(msg.createdAt) }}</span>
+          <div class="message-content-wrap">
+            <div class="message-header">
+              <span class="message-sender">{{ msg.model || currentModel }}</span>
+              <span class="message-timestamp">{{ formatTime(msg.createdAt) }}</span>
+              <span v-if="msg.usage" class="message-token-info">{{ msg.usage }}</span>
+            </div>
+            <div class="message-bubble bubble-assistant">
+              <div class="message-body">
+                <!-- 图片内容块 -->
+                <template v-for="(block, bi) in msg.content" :key="bi">
+                  <div v-if="block.type === 'image_url'" class="msg-image-wrap">
+                    <img :src="(block as any).image_url?.url" class="msg-image" alt="图片" />
+                  </div>
+                  <div v-else-if="block.type === 'text'" v-html="renderMarkdown(block.text || '')"></div>
+                </template>
+              </div>
+            </div>
             <!-- 悬浮操作栏 -->
             <div class="msg-actions">
-              <button class="msg-action-btn" @click="copyMessage(msg)" title="复制"><Copy :size="14" /></button>
               <button class="msg-action-btn" @click="regenerateMessage(idx)" title="重新生成"><RotateCcw :size="14" /></button>
+              <button class="msg-action-btn" @click="copyMessage(msg)" title="复制"><Copy :size="14" /></button>
+              <button class="msg-action-btn" @click="deleteMessage(idx)" title="删除"><Trash2 :size="14" /></button>
             </div>
           </div>
         </template>
 
-        <!-- 用户消息：右侧气泡 -->
+        <!-- 用户消息：右侧 -->
         <template v-else>
-          <div class="message-bubble bubble-user">
-            <div class="message-body">{{ getMessageText(msg) }}</div>
-            <span class="message-time">{{ formatTime(msg.createdAt) }}</span>
+          <div class="message-content-wrap">
+            <div class="message-header message-header-right">
+              <span v-if="msg.usage" class="message-token-info">{{ msg.usage }}</span>
+              <span class="message-timestamp">{{ formatTime(msg.createdAt) }}</span>
+              <span class="message-sender">onlyWjt</span>
+            </div>
+            <div class="message-bubble bubble-user">
+              <div class="message-body">
+                <!-- 图片内容块 -->
+                <template v-for="(block, bi) in msg.content" :key="bi">
+                  <div v-if="block.type === 'image_url'" class="msg-image-wrap">
+                    <img :src="(block as any).image_url?.url" class="msg-image" alt="图片" />
+                  </div>
+                  <span v-else-if="block.type === 'text'">{{ block.text }}</span>
+                </template>
+              </div>
+            </div>
             <!-- 悬浮操作栏 -->
-            <div class="msg-actions msg-actions-left">
+            <div class="msg-actions msg-actions-right">
               <button class="msg-action-btn" @click="editMessage(idx)" title="编辑"><Edit2 :size="14" /></button>
               <button class="msg-action-btn" @click="copyMessage(msg)" title="复制"><Copy :size="14" /></button>
+              <button class="msg-action-btn" @click="deleteMessage(idx)" title="删除"><Trash2 :size="14" /></button>
             </div>
           </div>
           <div class="message-avatar user-avatar"><User :size="20" stroke-width="1.5" /></div>
@@ -69,13 +98,19 @@
       <!-- 流式输出中 -->
       <div v-if="isStreaming" class="message-row assistant animate-fade-in">
         <div class="message-avatar"><Bot :size="20" stroke-width="1.5" /></div>
-        <div class="message-bubble bubble-assistant">
-          <div class="message-body">
-            <div v-html="renderMarkdown(streamingText)"></div>
-            <span v-if="streamingText.length === 0" class="loading-dots">
-              <span>●</span><span>●</span><span>●</span>
-            </span>
-            <span v-else class="cursor-blink">|</span>
+        <div class="message-content-wrap">
+          <div class="message-header">
+            <span class="message-sender">{{ currentModel }}</span>
+            <span class="message-timestamp">正在生成...</span>
+          </div>
+          <div class="message-bubble bubble-assistant">
+            <div class="message-body">
+              <div v-html="renderMarkdown(streamingText)"></div>
+              <span v-if="streamingText.length === 0" class="loading-dots">
+                <span>●</span><span>●</span><span>●</span>
+              </span>
+              <span v-else class="cursor-blink">|</span>
+            </div>
           </div>
           <div v-if="streamingUsage" class="message-meta">
             {{ streamingUsage }}
@@ -94,6 +129,13 @@
     <!-- 输入区域 -->
     <div class="chat-input-area">
       <div class="chat-input-container" :class="{ focused: isFocused }">
+        <!-- 图片预览 -->
+        <div v-if="pendingImages.length > 0" class="image-preview-row">
+          <div v-for="(img, i) in pendingImages" :key="i" class="image-preview-item">
+            <img :src="img" class="preview-thumb" alt="预览" />
+            <button class="preview-remove" @click="removePendingImage(i)">×</button>
+          </div>
+        </div>
         <textarea
           ref="textareaRef"
           v-model="inputText"
@@ -104,9 +146,15 @@
           @input="autoResize"
           @focus="isFocused = true"
           @blur="isFocused = false"
+          @paste="handlePaste"
         />
         <div class="chat-input-actions">
           <div class="input-left">
+            <!-- 工具栏图标 -->
+            <button class="toolbar-icon-btn" @click="triggerImageUpload" title="上传图片">
+              <ImageIcon :size="16" />
+            </button>
+            <input ref="imageInputRef" type="file" accept="image/*" multiple style="display:none" @change="onImageSelected" />
             <!-- 模型选择器 -->
             <div class="model-picker-wrapper">
               <span class="model-badge badge badge-primary" @click="showModelPicker = !showModelPicker">
@@ -137,7 +185,7 @@
             </button>
             <button
               class="btn btn-primary btn-send"
-              :disabled="!inputText.trim() || isStreaming"
+              :disabled="(!inputText.trim() && pendingImages.length === 0) || isStreaming"
               @click="sendMessage"
             >
               发送
@@ -156,7 +204,8 @@ import { useSidecar } from '../composables/useSidecar'
 import { useConfigStore } from '../stores/configStore'
 import { useChatStore, type ChatMessage } from '../stores/chatStore'
 import { useSkillStore } from '../stores/skillStore'
-import { MessageSquare, Trash2, Plus, Bot, User, Copy, RotateCcw, Edit2, StopCircle, Download } from 'lucide-vue-next'
+import { apiFetch } from '../utils/http'
+import { MessageSquare, Trash2, Plus, Bot, User, Copy, RotateCcw, Edit2, StopCircle, Download, ImageIcon } from 'lucide-vue-next'
 
 const route = useRoute()
 const { ensureSidecar, getBaseUrl } = useSidecar()
@@ -184,20 +233,15 @@ const streamingUsage = ref('')
 const isFocused = ref(false)
 const showModelPicker = ref(false)
 const showScrollBtn = ref(false)
+
+// 图片上传相关
+const pendingImages = ref<string[]>([])
+const imageInputRef = ref<HTMLInputElement | null>(null)
 let currentAbortController: AbortController | null = null
 
-// 可用模型列表：从 configStore 动态获取已启用的模型
+// 可用模型列表：仅显示已配置供应商中已启用的模型
 const availableModels = computed(() => {
-  const models = configStore.allEnabledModels()
-  // 如果没有配置任何模型，提供默认保底列表
-  if (models.length === 0) {
-    return [
-      { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4', providerId: 'anthropic', providerName: 'Anthropic' },
-      { id: 'gpt-4o', name: 'GPT-4o', providerId: 'openai', providerName: 'OpenAI' },
-      { id: 'deepseek-chat', name: 'DeepSeek Chat', providerId: 'deepseek', providerName: 'DeepSeek' },
-    ]
-  }
-  return models
+  return configStore.allEnabledModels()
 })
 
 function modelDisplayName(id: string) {
@@ -310,7 +354,7 @@ function renderMarkdown(text: string): string {
 // 发送消息
 async function sendMessage() {
   const text = inputText.value.trim()
-  if (!text || isStreaming.value) return
+  if ((!text && pendingImages.value.length === 0) || isStreaming.value) return
 
   // 获取 API Key
   const provider = configStore.defaultProvider
@@ -320,15 +364,25 @@ async function sendMessage() {
     chatStore.createConversation()
   }
 
+  // 构建 content 数组（支持图片）
+  const contentBlocks: any[] = []
+  for (const imgData of pendingImages.value) {
+    contentBlocks.push({ type: 'image_url', image_url: { url: imgData } })
+  }
+  if (text) {
+    contentBlocks.push({ type: 'text', text })
+  }
+
   // 添加用户消息
   chatStore.addMessage({
     id: crypto.randomUUID(),
     role: 'user',
-    content: [{ type: 'text', text }],
+    content: contentBlocks,
     createdAt: new Date().toISOString(),
   })
 
   inputText.value = ''
+  pendingImages.value = []
   // 重置 textarea 高度
   if (textareaRef.value) {
     textareaRef.value.style.height = 'auto'
@@ -359,6 +413,7 @@ async function sendMessage() {
       content: [{ type: 'text', text: streamingText.value }],
       createdAt: new Date().toISOString(),
       usage: streamingUsage.value || undefined,
+      model: currentModel.value,
     })
   }
   isStreaming.value = false
@@ -473,7 +528,7 @@ async function streamFromOpenAI(prompt: string, apiKey: string, baseUrl: string)
   }
 
   currentAbortController = new AbortController()
-  const response = await fetch(url, {
+  const response = await apiFetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -552,7 +607,7 @@ async function streamFromAnthropic(prompt: string, apiKey: string, baseUrl: stri
   const systemPrompt = skillStore.combinedSkillPrompt || undefined
 
   currentAbortController = new AbortController()
-  const response = await fetch(url, {
+  const response = await apiFetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -615,6 +670,120 @@ async function streamFromAnthropic(prompt: string, apiKey: string, baseUrl: stri
 }
 
 /**
+ * 直接调用 OpenAI Responses API（/v1/responses，2025 年新接口）
+ * 使用语义化 SSE 事件格式
+ */
+async function streamFromOpenAIResponses(prompt: string, apiKey: string, baseUrl: string) {
+  const url = `${baseUrl.replace(/\/+$/, '')}/v1/responses`
+
+  // 构建输入：Responses API 使用 input 字段（支持字符串或消息数组）
+  const historyMessages = chatStore.messages.map(m => ({
+    role: m.role,
+    content: m.content.filter(b => b.type === 'text').map(b => b.text || '').join(''),
+  }))
+
+  // 构建 input 消息数组
+  const inputMessages = [
+    ...historyMessages,
+    { role: 'user', content: prompt },
+  ]
+
+  // 系统指令（技能注入）
+  const instructions = skillStore.combinedSkillPrompt || undefined
+
+  currentAbortController = new AbortController()
+  const response = await apiFetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: currentModel.value,
+      input: inputMessages,
+      instructions,
+      stream: true,
+    }),
+    signal: currentAbortController.signal,
+  })
+
+  if (!response.ok) {
+    const errorBody = await response.text().catch(() => '')
+    throw new Error(`OpenAI Responses API 返回 ${response.status}: ${errorBody.slice(0, 200)}`)
+  }
+
+  const reader = response.body?.getReader()
+  if (!reader) throw new Error('无法获取响应流')
+
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+
+    // 解析 OpenAI Responses API 语义 SSE 格式（event: + data:）
+    while (buffer.includes('\n\n')) {
+      const pos = buffer.indexOf('\n\n')
+      const eventBlock = buffer.slice(0, pos)
+      buffer = buffer.slice(pos + 2)
+
+      let eventType = ''
+      let eventData = ''
+
+      for (const line of eventBlock.split('\n')) {
+        if (line.startsWith('event: ')) {
+          eventType = line.slice(7).trim()
+        } else if (line.startsWith('data: ')) {
+          eventData = line.slice(6)
+        }
+      }
+
+      if (!eventData) continue
+
+      try {
+        const data = JSON.parse(eventData)
+
+        // 处理不同的语义事件
+        switch (eventType) {
+          case 'response.output_text.delta':
+            // 文本增量
+            if (data.delta) {
+              streamingText.value += data.delta
+              scrollToBottom()
+            }
+            break
+
+          case 'response.completed':
+            // 响应完成，提取 token 用量
+            if (data.response?.usage) {
+              const u = data.response.usage
+              streamingUsage.value = `输入 ${u.input_tokens || u.prompt_tokens || '?'} / 输出 ${u.output_tokens || u.completion_tokens || '?'} tokens`
+            }
+            break
+
+          case 'response.failed':
+            // 响应失败
+            const errorMsg = data.response?.status_details?.error?.message || '未知错误'
+            streamingText.value += `\n\n❌ ${errorMsg}`
+            break
+
+          case 'response.output_text.done':
+            // 单个输出项完成，无需额外处理
+            break
+
+          default:
+            // 其他事件（response.created, response.in_progress 等）忽略
+            break
+        }
+      } catch {}
+    }
+  }
+}
+
+/**
  * 智能路由：根据 endpointType 选择正确的流式调用方式
  * 优先尝试 Sidecar，如果 Sidecar 不可用则直接调用 API
  */
@@ -634,7 +803,10 @@ async function streamAuto(prompt: string, apiKey: string, baseUrl?: string, endp
   } catch {}
 
   // Sidecar 不可用，直接调用 API
-  if (type === 'openai' || type === 'deepseek' || type === 'openai-compatible') {
+  if (type === 'openai-responses') {
+    // OpenAI Responses API（/v1/responses）
+    await streamFromOpenAIResponses(prompt, apiKey, url)
+  } else if (type === 'openai' || type === 'deepseek' || type === 'openai-compatible') {
     await streamFromOpenAI(prompt, apiKey, url)
   } else if (type === 'anthropic') {
     await streamFromAnthropic(prompt, apiKey, url)
@@ -750,6 +922,7 @@ async function regenerateMessage(idx: number) {
       content: [{ type: 'text', text: streamingText.value }],
       createdAt: new Date().toISOString(),
       usage: streamingUsage.value || undefined,
+      model: currentModel.value,
     })
   }
   isStreaming.value = false
@@ -764,6 +937,59 @@ function editMessage(idx: number) {
   // 删除当前消息及之后所有
   chatStore.messages.splice(idx)
   nextTick(() => textareaRef.value?.focus())
+}
+
+/** 删除单条消息 */
+function deleteMessage(idx: number) {
+  chatStore.messages.splice(idx, 1)
+  chatStore.saveCurrentConversation()
+}
+
+/** 触发图片文件选择 */
+function triggerImageUpload() {
+  imageInputRef.value?.click()
+}
+
+/** 图片文件选择回调 */
+function onImageSelected(e: Event) {
+  const input = e.target as HTMLInputElement
+  if (!input.files) return
+  for (const file of input.files) {
+    if (!file.type.startsWith('image/')) continue
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        pendingImages.value.push(reader.result)
+      }
+    }
+    reader.readAsDataURL(file)
+  }
+  input.value = '' // 重置，允许重复选择
+}
+
+/** 粘贴图片支持 */
+function handlePaste(e: ClipboardEvent) {
+  const items = e.clipboardData?.items
+  if (!items) return
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      e.preventDefault()
+      const file = item.getAsFile()
+      if (!file) continue
+      const reader = new FileReader()
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          pendingImages.value.push(reader.result)
+        }
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+}
+
+/** 移除待发送图片 */
+function removePendingImage(index: number) {
+  pendingImages.value.splice(index, 1)
 }
 
 function formatTime(iso: string) {
@@ -892,15 +1118,51 @@ onUnmounted(() => {
   background: var(--color-primary-bg);
   border-radius: var(--radius-md);
   font-size: 16px; flex-shrink: 0;
+  margin-top: 20px;
 }
 .user-avatar {
   background: var(--color-bg-tertiary);
 }
 
+/* 消息内容包裹器 */
+.message-content-wrap {
+  display: flex;
+  flex-direction: column;
+  max-width: 75%;
+  position: relative;
+}
+
+/* 消息头部（模型名+时间戳+Token） */
+.message-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 0 var(--space-xs);
+  margin-bottom: 2px;
+}
+.message-header-right {
+  justify-content: flex-end;
+}
+.message-sender {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+.message-timestamp {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+.message-token-info {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  background: var(--color-bg-tertiary);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+}
+
 /* 气泡通用 */
 .message-bubble {
   position: relative;
-  max-width: 75%;
   padding: var(--space-md);
   border-radius: var(--radius-lg);
   line-height: 1.7;
@@ -933,34 +1195,33 @@ onUnmounted(() => {
   margin-top: var(--space-xs);
 }
 
+/* 消息内图片 */
+.msg-image-wrap {
+  margin: var(--space-sm) 0;
+}
+.msg-image {
+  max-width: 100%;
+  max-height: 300px;
+  border-radius: var(--radius-md);
+  object-fit: contain;
+  cursor: pointer;
+}
+
 /* ===== 消息悬浮操作栏 ===== */
 .msg-actions {
-  position: absolute;
-  bottom: -12px;
-  right: 8px;
   display: flex;
   gap: 4px;
+  margin-top: 4px;
   opacity: 0;
   transition: opacity var(--transition-fast);
   pointer-events: none;
 }
-.msg-actions-left {
-  right: auto;
-  left: 8px;
+.msg-actions-right {
+  justify-content: flex-end;
 }
 
-/* 消息时间戳 —— Hover 时显现 */
-.message-time {
-  display: block;
-  font-size: 10px;
-  color: var(--color-text-tertiary);
-  opacity: 0;
-  margin-top: 4px;
-  transition: opacity var(--transition-fast);
-}
-.message-bubble:hover .message-time { opacity: 1; }
 .message-row:hover .msg-actions,
-.message-bubble:hover .msg-actions {
+.message-content-wrap:hover .msg-actions {
   opacity: 1;
   pointer-events: auto;
 }
@@ -1192,4 +1453,51 @@ onUnmounted(() => {
 .btn-flex { display: flex; align-items: center; gap: 4px; }
 .flex-center { display: flex; align-items: center; }
 .gap-xs { gap: var(--space-xs); }
+
+/* 工具栏图标按钮 */
+.toolbar-icon-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px;
+  background: transparent;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.toolbar-icon-btn:hover {
+  background: var(--color-primary-bg);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+/* 图片预览行 */
+.image-preview-row {
+  display: flex;
+  gap: var(--space-sm);
+  padding: var(--space-sm) 0;
+  flex-wrap: wrap;
+}
+.image-preview-item {
+  position: relative;
+  display: inline-block;
+}
+.preview-thumb {
+  width: 64px; height: 64px;
+  object-fit: cover;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-light);
+}
+.preview-remove {
+  position: absolute;
+  top: -6px; right: -6px;
+  width: 20px; height: 20px;
+  background: var(--color-error);
+  color: white;
+  border: none; border-radius: 50%;
+  font-size: 12px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  line-height: 1;
+}
 </style>

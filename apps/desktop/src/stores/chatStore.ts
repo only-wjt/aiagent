@@ -33,6 +33,7 @@ export interface ChatMessage {
   content: ContentBlock[]
   createdAt: string
   usage?: string
+  model?: string
 }
 
 /** 对话摘要（列表展示） */
@@ -44,6 +45,8 @@ export interface ConversationSummary {
   updatedAt: string
   messageCount: number
   preview: string
+  pinned?: boolean
+  workspaceId?: string  // Agent 会话绑定的工作区 ID
 }
 
 /** 完整对话（含消息） */
@@ -116,7 +119,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   /** 创建新对话 */
-  function createConversation (model?: string): string {
+  function createConversation (model?: string, workspaceId?: string): string {
     const id = crypto.randomUUID()
     const now = new Date().toISOString()
     const m = model || currentModel.value
@@ -135,6 +138,7 @@ export const useChatStore = defineStore('chat', () => {
       updatedAt: now,
       messageCount: 0,
       preview: '',
+      workspaceId,
     })
 
     return id
@@ -159,9 +163,10 @@ export const useChatStore = defineStore('chat', () => {
       messages.value = conv.messages.map(m => ({
         id: m.id,
         role: m.role as 'user' | 'assistant',
-        content: m.content.map(b => ({ type: b.type, text: b.text, name: b.name, id: b.id })),
+        content: m.content.map(b => ({ ...b })),
         createdAt: m.created_at,
         usage: m.usage,
+        model: (m as any).model,
       }))
     } catch (e) {
       console.error('[ChatStore] 加载对话失败:', e)
@@ -262,6 +267,14 @@ export const useChatStore = defineStore('chat', () => {
     messages.value = []
   }
 
+  /** 置顶/取消置顶 */
+  function togglePin (id: string) {
+    const conv = conversations.value.find(c => c.id === id)
+    if (conv) {
+      conv.pinned = !conv.pinned
+    }
+  }
+
   return {
     // 状态
     conversations,
@@ -280,5 +293,6 @@ export const useChatStore = defineStore('chat', () => {
     deleteConversation,
     addMessage,
     clearCurrentMessages,
+    togglePin,
   }
 })

@@ -28,11 +28,19 @@
               <span class="provider-url">{{ provider.baseUrl }}</span>
               <span v-if="provider.endpointType && provider.endpointType !== 'anthropic'" class="badge badge-info" style="margin-left:6px;font-size:11px">{{ provider.endpointType }}</span>
             </div>
+            <div class="provider-actual-url">
+              → {{ getActualEndpoint(provider.baseUrl, provider.endpointType) }}
+            </div>
           </div>
           <div class="provider-status-area">
             <span class="badge" :class="statusClass(provider.status)">
               {{ statusText(provider.status) }}
             </span>
+            <button
+              class="btn-icon btn-edit"
+              @click="editProvider(provider)"
+              title="编辑"
+            >✏️</button>
             <button
               v-if="provider.isCustom"
               class="btn-icon btn-delete"
@@ -58,12 +66,6 @@
           </div>
         </div>
 
-        <!-- Base URL（可编辑） -->
-        <div v-if="provider.isCustom" class="provider-url-edit">
-          <label class="field-label">Base URL</label>
-          <input class="input url-input" v-model="provider.baseUrl" placeholder="https://api.example.com" />
-        </div>
-
         <!-- 操作按钮 -->
         <div class="provider-actions">
           <button
@@ -80,73 +82,26 @@
           >
             设为默认
           </button>
+          <button
+            v-if="provider.isCustom"
+            class="btn btn-ghost btn-sm"
+            @click="editProvider(provider)"
+          >
+            ✏️ 编辑
+          </button>
         </div>
 
         <!-- 测试结果 -->
         <div v-if="testResults[provider.id]" class="test-result" :class="testResults[provider.id]">
           {{ testResults[provider.id] === 'success' ? '✅ 连接成功' : '❌ 连接失败，请检查 API Key 或 Base URL' }}
         </div>
-
-        <!-- 模型列表 -->
-        <div class="models-section">
-          <div class="models-header">
-            <span class="models-title">模型列表 <span class="models-count" v-if="provider.models.length">{{ provider.models.filter(m => m.enabled).length }}/{{ provider.models.length }}</span></span>
-            <div class="models-actions">
-              <button
-                class="btn btn-ghost btn-sm"
-                :disabled="!provider.apiKey || fetchingModels === provider.id"
-                @click="handleFetchModels(provider.id)"
-              >
-                {{ fetchingModels === provider.id ? '获取中...' : '🔄 获取模型' }}
-              </button>
-            </div>
-          </div>
-
-          <!-- 模型勾选列表 -->
-          <div v-if="provider.models.length > 0" class="models-list">
-            <label
-              v-for="model in provider.models"
-              :key="model.id"
-              class="model-item"
-              :class="{ disabled: !model.enabled }"
-            >
-              <input
-                type="checkbox"
-                :checked="model.enabled"
-                @change="configStore.toggleModel(provider.id, model.id)"
-              />
-              <span class="model-name">{{ model.name }}</span>
-              <span v-if="model.isCustom" class="badge badge-warning" style="font-size:10px">自定义</span>
-              <button
-                v-if="model.isCustom"
-                class="model-remove"
-                @click.prevent="configStore.removeModel(provider.id, model.id)"
-                title="删除"
-              >×</button>
-            </label>
-          </div>
-          <div v-else class="models-empty">
-            点击「获取模型」加载可用模型，或手动添加
-          </div>
-
-          <!-- 手动添加自定义模型 -->
-          <div class="add-model-row">
-            <input
-              class="input add-model-input"
-              placeholder="输入模型 ID，如 gpt-4o"
-              v-model="customModelInput[provider.id]"
-              @keydown.enter="handleAddModel(provider.id)"
-            />
-            <button class="btn btn-secondary btn-sm" @click="handleAddModel(provider.id)" :disabled="!customModelInput[provider.id]?.trim()">添加</button>
-          </div>
-        </div>
       </div>
     </div>
 
-    <!-- 添加自定义供应商模态框 -->
+    <!-- 添加/编辑供应商模态框 -->
     <div v-if="showAddModal" class="modal-overlay" @click.self="closeModal">
       <div class="modal card">
-        <h3 class="modal-title">添加自定义供应商</h3>
+        <h3 class="modal-title">{{ editingProviderId ? '编辑供应商' : '添加自定义供应商' }}</h3>
         <p class="modal-hint">支持任何兼容 Anthropic API 格式的端点（如 OpenRouter、AWS Bedrock 等）</p>
 
         <!-- 快捷选择 -->
@@ -178,6 +133,13 @@
               :class="{ active: form.endpointType === ep }"
               @click="form.endpointType = ep"
             >{{ ep }}</button>
+          </div>
+        </div>
+        <!-- 真实请求地址预览 -->
+        <div v-if="form.baseUrl.trim()" class="form-group">
+          <label>真实请求地址</label>
+          <div class="actual-url-preview">
+            → {{ getActualEndpoint(form.baseUrl, form.endpointType) }}
           </div>
         </div>
         <div class="form-group">
@@ -229,7 +191,20 @@
 
         <div class="modal-actions">
           <button class="btn btn-ghost" @click="closeModal">取消</button>
-          <button class="btn btn-primary" @click="addProvider" :disabled="!form.name.trim() || !form.baseUrl.trim()">
+          <button
+            v-if="editingProviderId"
+            class="btn btn-primary"
+            @click="saveEditedProvider"
+            :disabled="!form.name.trim() || !form.baseUrl.trim()"
+          >
+            保存
+          </button>
+          <button
+            v-else
+            class="btn btn-primary"
+            @click="addProvider"
+            :disabled="!form.name.trim() || !form.baseUrl.trim()"
+          >
             添加
           </button>
         </div>
@@ -241,6 +216,7 @@
 <script setup lang="ts">
 import { ref, reactive } from 'vue'
 import { useConfigStore } from '../../stores/configStore'
+import { apiFetch } from '../../utils/http'
 import type { ProviderStatus } from '@aiagent/shared'
 
 const configStore = useConfigStore()
@@ -250,10 +226,10 @@ const showKey = reactive<Record<string, boolean>>({})
 const testingId = ref<string | null>(null)
 const testResults = reactive<Record<string, 'success' | 'error'>>({})
 const showAddModal = ref(false)
-const fetchingModels = ref<string | null>(null)
-const customModelInput = reactive<Record<string, string>>({})
+const editingProviderId = ref<string | null>(null)
 
-const endpointTypes = ['anthropic', 'openai-compatible', 'gemini']
+
+const endpointTypes = ['anthropic', 'openai-compatible', 'openai-responses', 'gemini']
 
 const presets = [
   { name: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', endpointType: 'openai-compatible' },
@@ -290,6 +266,19 @@ function statusClass(status: ProviderStatus) {
 
 function statusText(status: ProviderStatus) {
   return { active: '已连接', error: '连接失败', unconfigured: '未配置' }[status]
+}
+
+/** 根据端点类型计算真实请求地址 */
+function getActualEndpoint(baseUrl: string, endpointType?: string): string {
+  const base = (baseUrl || '').replace(/\/+$/, '')
+  const type = endpointType || 'anthropic'
+  const pathMap: Record<string, string> = {
+    'anthropic': '/v1/messages',
+    'openai-compatible': '/v1/chat/completions',
+    'openai-responses': '/v1/responses',
+    'gemini': '/v1beta/models/{model}:streamGenerateContent',
+  }
+  return `${base}${pathMap[type] || '/v1/chat/completions'}`
 }
 
 async function onApiKeyChange(providerId: string, value: string) {
@@ -329,7 +318,7 @@ async function fetchModalModels() {
     const headers = form.endpointType === 'anthropic'
       ? { 'x-api-key': form.apiKey, 'anthropic-version': '2023-06-01' }
       : { 'Authorization': `Bearer ${form.apiKey}` }
-    const resp = await fetch(`${base}/v1/models`, { headers })
+    const resp = await apiFetch(`${base}/v1/models`, { headers })
     if (resp.ok) {
       const json = await resp.json()
       const modelIds = (json.data || []).map((m: any) => m.id).sort()
@@ -355,8 +344,37 @@ function removeFormModel(modelId: string) {
 
 function closeModal() {
   showAddModal.value = false
+  editingProviderId.value = null
   form.name = ''; form.baseUrl = ''; form.endpointType = 'anthropic'; form.apiKey = ''; form.models = []
   formNewModelId.value = ''
+}
+
+/** 打开编辑弹窗，预填充当前供应商数据 */
+function editProvider(provider: any) {
+  editingProviderId.value = provider.id
+  form.name = provider.name
+  form.baseUrl = provider.baseUrl
+  form.endpointType = provider.endpointType || 'anthropic'
+  form.apiKey = provider.apiKey || ''
+  form.models = (provider.models || []).map((m: any) => ({
+    id: m.id, name: m.name, enabled: m.enabled, isCustom: m.isCustom,
+  }))
+  showAddModal.value = true
+}
+
+/** 保存编辑后的供应商 */
+async function saveEditedProvider() {
+  if (!editingProviderId.value || !form.name.trim() || !form.baseUrl.trim()) return
+  const provider = providers.find(p => p.id === editingProviderId.value)
+  if (!provider) return
+  provider.name = form.name.trim()
+  provider.baseUrl = form.baseUrl.trim()
+  provider.endpointType = form.endpointType
+  provider.apiKey = form.apiKey.trim()
+  provider.status = form.apiKey.trim() ? 'active' : 'unconfigured'
+  provider.models = form.models.map(m => ({ id: m.id, name: m.name, enabled: m.enabled, isCustom: m.isCustom }))
+  await configStore.saveProviders()
+  closeModal()
 }
 
 async function addProvider() {
@@ -385,21 +403,7 @@ async function removeCustomProvider(id: string) {
   }
 }
 
-async function handleFetchModels(providerId: string) {
-  fetchingModels.value = providerId
-  try {
-    await configStore.fetchModels(providerId)
-  } finally {
-    fetchingModels.value = null
-  }
-}
 
-async function handleAddModel(providerId: string) {
-  const modelId = customModelInput[providerId]?.trim()
-  if (!modelId) return
-  await configStore.addCustomModel(providerId, modelId)
-  customModelInput[providerId] = ''
-}
 </script>
 
 <style scoped>
@@ -440,6 +444,8 @@ async function handleAddModel(providerId: string) {
 .btn-eye { padding: var(--space-xs) var(--space-sm); font-size: 14px; }
 
 .provider-url-edit { margin-bottom: var(--space-md); }
+.provider-edit-section { margin-bottom: var(--space-md); display: flex; flex-direction: column; gap: var(--space-sm); }
+.edit-field { }
 .field-label { display: block; font-size: var(--font-size-xs); font-weight: 500; color: var(--color-text-tertiary); margin-bottom: 4px; }
 .url-input { font-family: var(--font-mono); font-size: var(--font-size-sm); }
 
@@ -490,29 +496,7 @@ async function handleAddModel(providerId: string) {
 
 .modal-actions { display: flex; justify-content: flex-end; gap: var(--space-sm); margin-top: var(--space-lg); }
 
-/* 模型列表 */
-.models-section { margin-top: var(--space-md); border-top: 1px solid var(--color-border-light); padding-top: var(--space-md); }
-.models-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-sm); }
-.models-title { font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text-secondary); }
-.models-count { font-weight: 400; color: var(--color-text-tertiary); font-size: var(--font-size-xs); }
-.models-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 200px; overflow-y: auto; margin-bottom: var(--space-sm); }
-.model-item {
-  display: flex; align-items: center; gap: 6px;
-  padding: 4px 10px; border-radius: var(--radius-md);
-  background: var(--color-bg-secondary); font-size: var(--font-size-xs);
-  cursor: pointer; transition: all var(--transition-fast); user-select: none;
-}
-.model-item:hover { background: var(--color-bg-hover); }
-.model-item.disabled { opacity: 0.5; }
-.model-name { font-family: var(--font-mono); font-size: 11px; }
-.model-remove {
-  background: none; border: none; color: var(--color-text-tertiary);
-  cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px;
-}
-.model-remove:hover { color: var(--color-error); }
-.models-empty { font-size: var(--font-size-xs); color: var(--color-text-tertiary); padding: var(--space-xs) 0; }
-.add-model-row { display: flex; gap: var(--space-xs); margin-top: var(--space-xs); }
-.add-model-input { flex: 1; font-size: var(--font-size-xs); font-family: var(--font-mono); padding: 4px 8px; }
+
 .models-header-modal { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .models-list-modal { display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; margin-bottom: 8px; padding: 8px; background: var(--color-bg-secondary); border-radius: var(--radius-md); }
 .model-checkbox { display: flex; align-items: center; gap: 8px; font-size: var(--font-size-sm); cursor: pointer; user-select: none; }
@@ -520,4 +504,22 @@ async function handleAddModel(providerId: string) {
 .btn-remove-model { background: none; border: none; color: var(--color-text-tertiary); cursor: pointer; padding: 0; margin-left: auto; font-size: 14px; }
 .btn-remove-model:hover { color: var(--color-error); }
 .add-model-row-modal { display: flex; gap: var(--space-xs); margin-top: 8px; }
+
+/* 真实请求地址 */
+.provider-actual-url {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+  padding: 2px 0;
+  margin-top: 2px;
+}
+.actual-url-preview {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--color-primary);
+  background: var(--color-primary-bg);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  word-break: break-all;
+}
 </style>

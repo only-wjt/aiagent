@@ -1,5 +1,5 @@
 <template>
-  <header class="titlebar drag-region">
+  <header class="titlebar drag-region" @dblclick="toggleMaximize">
     <!-- Logo -->
     <div class="titlebar-left no-drag">
       <div class="app-logo">
@@ -187,7 +187,8 @@ function goToSettings() {
   display: flex;
   align-items: center;
   min-width: 160px;
-  padding-left: var(--space-sm);
+  /* macOS 交通灯按钮（红黄绿）占位约 78px */
+  padding-left: 78px;
 }
 
 .app-logo { display: flex; align-items: center; gap: var(--space-sm); color: var(--color-primary); }

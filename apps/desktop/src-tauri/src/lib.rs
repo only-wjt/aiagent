@@ -5,6 +5,7 @@
 mod sidecar;
 mod sse_proxy;
 mod config;
+mod agent_tools;
 
 use sidecar::SidecarManager;
 use sse_proxy::SseProxyState;
@@ -55,6 +56,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_http::init())
         // 注入状态
         .manage(sidecar_mgr)
         .manage(sse_state)
@@ -84,6 +86,8 @@ pub fn run() {
             // 通用 JSON 存储
             config::cmd_read_json,
             config::cmd_write_json,
+            // Agent 工具执行
+            agent_tools::cmd_execute_tool,
         ])
         // 应用初始化：创建系统托盘 + 恢复窗口状态
         .setup({
