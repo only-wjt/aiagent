@@ -108,7 +108,7 @@ export const useConfigStore = defineStore('config', () => {
     try {
       const saved = await invoke('cmd_get_providers') as Array<{
         id: string; name: string; base_url: string; api_key: string;
-        is_default: boolean; enabled: boolean; endpoint_type: string;
+        is_default: boolean; enabled: boolean; endpoint_type: string; is_custom?: boolean;
       }>
       if (saved.length > 0) {
         providers.value = saved.map(p => {
@@ -119,6 +119,7 @@ export const useConfigStore = defineStore('config', () => {
             baseUrl: p.base_url,
             apiKey: p.api_key,
             isDefault: p.is_default,
+            isCustom: p.is_custom ?? p.id.startsWith('custom-'),
             status: (p.api_key ? 'active' : 'unconfigured') as ProviderStatus,
             endpointType: p.endpoint_type || template?.endpointType || 'anthropic',
             icon: template?.icon || p.id,
@@ -147,6 +148,7 @@ export const useConfigStore = defineStore('config', () => {
           is_default: p.isDefault,
           enabled: true,
           endpoint_type: p.endpointType || 'anthropic',
+          is_custom: !!p.isCustom,
           models: p.models || [],
         }))
       })

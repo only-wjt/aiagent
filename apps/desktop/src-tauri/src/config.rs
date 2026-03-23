@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use tauri::State;
+use crate::crypto::{encrypt_api_key, decrypt_api_key};
 
 /// 数据目录名（~/.aiagent/）
 const DATA_DIR: &str = ".aiagent";
@@ -43,6 +44,8 @@ pub struct ProviderConfig {
     pub enabled: bool,
     #[serde(default)]
     pub endpoint_type: String,
+    #[serde(default)]
+    pub is_custom: bool,
 }
 
 /// 配置管理器
@@ -88,21 +91,46 @@ impl ConfigManager {
         fs::write(&config_path, json).map_err(|e| format!("保存配置失败: {}", e))
     }
 
-    /// 读取供应商配置列表
+    /// 读取供应商配置列表（自动解密 API Key）
     pub fn read_providers(&self) -> Vec<ProviderConfig> {
         let path = self.data_dir.join("providers.json");
         if let Ok(content) = fs::read_to_string(&path) {
-            serde_json::from_str(&content).unwrap_or_default()
+            let mut providers: Vec<ProviderConfig> = serde_json::from_str(&content).unwrap_or_default();
+            // 自动解密 API Key
+            for provider in &mut providers {
+                if !provider.api_key.is_empty() {
+                    if let Ok(decrypted) = decrypt_api_key(&provider.api_key) {
+                        provider.api_key = decrypted;
+                    }
+                }
+            }
+            providers
         } else {
             Vec::new()
         }
     }
 
-    /// 保存供应商配置列表
+    /// 保存供应商配置列表（自动加密 API Key）
     pub fn save_providers(&self, providers: &[ProviderConfig]) -> Result<(), String> {
         let path = self.data_dir.join("providers.json");
-        let json = serde_json::to_string_pretty(providers).map_err(|e| e.to_string())?;
+        let mut encrypted_providers = providers.to_vec();
+        // 自动加密 API Key
+        for provider in &mut encrypted_providers {
+            if !provider.api_key.is_empty() {
+                provider.api_key = encrypt_api_key(&provider.api_key)?;
+            }
+        }
+        let json = serde_json::to_string_pretty(&encrypted_providers).map_err(|e| e.to_string())?;
         fs::write(&path, json).map_err(|e| format!("保存供应商配置失败: {}", e))
+    }
+
+    /// 迁移现有的明文 API Key 为加密格式
+    pub fn migrate_providers_encryption(&self) -> Result<(), String> {
+        let providers = self.read_providers();
+        if !providers.is_empty() {
+            self.save_providers(&providers)?;
+        }
+        Ok(())
     }
 }
 
@@ -148,6 +176,14 @@ pub fn cmd_get_data_dir(
     config_mgr: State<'_, ConfigManager>,
 ) -> String {
     config_mgr.data_dir().to_string_lossy().to_string()
+}
+
+/// 迁移 API Key 加密
+#[tauri::command]
+pub fn cmd_migrate_encryption(
+    config_mgr: State<'_, ConfigManager>,
+) -> Result<(), String> {
+    config_mgr.migrate_providers_encryption()
 }
 
 // ==================== 通用 JSON 存储 ====================

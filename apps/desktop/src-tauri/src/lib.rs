@@ -6,6 +6,7 @@ mod sidecar;
 mod sse_proxy;
 mod config;
 mod agent_tools;
+mod crypto;
 
 use sidecar::SidecarManager;
 use sse_proxy::SseProxyState;
@@ -47,6 +48,9 @@ pub fn run() {
     let app_config = config_mgr.read_app_config();
     let data_dir = config_mgr.data_dir().clone();
 
+    // 迁移现有的明文 API Key 为加密格式
+    let _ = config_mgr.migrate_providers_encryption();
+
     // 初始化 Sidecar 管理器
     let sidecar_mgr = SidecarManager::new(app_config.sidecar_port_start);
 
@@ -78,6 +82,7 @@ pub fn run() {
             config::cmd_get_providers,
             config::cmd_save_providers,
             config::cmd_get_data_dir,
+            config::cmd_migrate_encryption,
             // 对话持久化
             config::cmd_save_conversation,
             config::cmd_load_conversation,

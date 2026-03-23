@@ -397,10 +397,16 @@ async function addProvider() {
 
 async function removeCustomProvider(id: string) {
   const idx = providers.findIndex(p => p.id === id)
-  if (idx !== -1) {
-    providers.splice(idx, 1)
-    await configStore.saveProviders()
-  }
+  if (idx === -1) return
+
+  const provider = providers[idx]
+  if (!provider.isCustom) return
+  if (provider.isDefault) return
+
+  providers.splice(idx, 1)
+  delete testResults[id]
+  delete showKey[id]
+  await configStore.saveProviders()
 }
 
 

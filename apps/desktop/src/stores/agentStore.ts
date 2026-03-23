@@ -370,7 +370,7 @@ export const useAgentStore = defineStore('agent', () => {
         if (endpointType === 'anthropic') {
           // ===== Anthropic 流式 =====
           const url = `${baseUrl}/v1/messages`
-          console.log('[Agent] Anthropic 流式请求:', url)
+          console.debug('[Agent] Anthropic 流式请求:', url)
 
           const anthropicTools = getEnabledAnthropicTools()
 
@@ -497,7 +497,7 @@ export const useAgentStore = defineStore('agent', () => {
         } else {
           // ===== OpenAI 流式 =====
           const url = `${baseUrl}/v1/chat/completions`
-          console.log('[Agent] OpenAI 流式请求:', url)
+          console.debug('[Agent] OpenAI 流式请求:', url)
 
           abortController.value = new AbortController()
           const response = await apiFetch(url, {
@@ -638,6 +638,7 @@ export const useAgentStore = defineStore('agent', () => {
       abortController.value.abort()
     }
     isProcessing.value = false
+    streamingMsgId.value = null
   }
 
   /** 清空会话 */
