@@ -57,28 +57,44 @@ function handleGlobalKeydown(e: KeyboardEvent) {
   }
 }
 
+/** 系统主题变化回调 */
+function handleThemeChange(e: MediaQueryListEvent) {
+  systemTheme.value = e.matches ? 'dark' : 'light'
+}
+
+/** 系统主题媒体查询引用（用于清理） */
+let prefersDarkQuery: MediaQueryList | null = null
+
 onMounted(async () => {
-  // 初始化配置（从持久化加载）
-  await configStore.init()
-  // 初始化对话列表
-  await chatStore.init()
-  // 初始化技能和 MCP 工具
-  await skillStore.init()
-  await mcpStore.init()
-  await workspaceStore.init()
+  try {
+    // 初始化配置（从持久化加载）
+    await configStore.init()
+    // 初始化对话列表
+    await chatStore.init()
+    // 初始化技能和 MCP 工具
+    await skillStore.init()
+    await mcpStore.init()
+    await workspaceStore.init()
+  } catch (error) {
+    console.error('[App] 初始化失败:', error)
+    showToast('应用初始化失败，部分功能可能不可用', 'error')
+  }
 
   // 监听系统主题变化
-  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)')
-  systemTheme.value = prefersDark.matches ? 'dark' : 'light'
-  prefersDark.addEventListener('change', (e) => {
-    systemTheme.value = e.matches ? 'dark' : 'light'
-  })
+  prefersDarkQuery = window.matchMedia('(prefers-color-scheme: dark)')
+  systemTheme.value = prefersDarkQuery.matches ? 'dark' : 'light'
+  prefersDarkQuery.addEventListener('change', handleThemeChange)
 
   // 注册全局快捷键
   window.addEventListener('keydown', handleGlobalKeydown)
 })
 
 onUnmounted(() => {
+  // 清理系统主题监听
+  if (prefersDarkQuery) {
+    prefersDarkQuery.removeEventListener('change', handleThemeChange)
+    prefersDarkQuery = null
+  }
   window.removeEventListener('keydown', handleGlobalKeydown)
 })
 

@@ -315,14 +315,14 @@ async function fetchModalModels() {
   fetchingModalModels.value = true
   try {
     const base = form.baseUrl.replace(/\/+$/, '')
-    const headers = form.endpointType === 'anthropic'
+    const headers: Record<string, string> = form.endpointType === 'anthropic'
       ? { 'x-api-key': form.apiKey, 'anthropic-version': '2023-06-01' }
       : { 'Authorization': `Bearer ${form.apiKey}` }
     const resp = await apiFetch(`${base}/v1/models`, { headers })
     if (resp.ok) {
       const json = await resp.json()
-      const modelIds = (json.data || []).map((m: any) => m.id).sort()
-      form.models = modelIds.map(id => ({ id, name: id, enabled: true }))
+      const modelIds = (json.data || []).map((m: any) => m.id as string).sort()
+      form.models = modelIds.map((id: string) => ({ id, name: id, enabled: true }))
     }
   } catch (e) {
     console.error('获取模型失败:', e)

@@ -194,24 +194,42 @@
         </div>
       </div>
     </div>
+
+    <!-- 工具执行确认对话框 (action 模式) -->
+    <div v-if="pendingToolCall" class="tool-approval-modal">
+      <div class="modal-overlay" @click="rejectPendingTool"></div>
+      <div class="modal-content">
+        <h3>确认工具执行</h3>
+        <p class="tool-name">工具: <code>{{ pendingToolCall.toolCall.name }}</code></p>
+        <div class="tool-args">
+          <p>参数:</p>
+          <pre>{{ JSON.stringify(pendingToolCall.toolCall.args, null, 2) }}</pre>
+        </div>
+        <p class="modal-hint">按 <kbd>Ctrl+Enter</kbd> 确认，<kbd>Esc</kbd> 拒绝</p>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" :disabled="toolApprovalLoading" @click="rejectPendingTool">拒绝</button>
+          <button class="btn btn-primary" :disabled="toolApprovalLoading" @click="approvePendingTool">确认执行</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, nextTick, onMounted, onUnmounted, computed, inject } from 'vue'
-import { useRoute } from 'vue-router'
 import { useSidecar } from '../composables/useSidecar'
 import { useConfigStore } from '../stores/configStore'
 import { useChatStore, type ChatMessage } from '../stores/chatStore'
 import { useSkillStore } from '../stores/skillStore'
+import { useAgentStore } from '../stores/agentStore'
 import { apiFetch } from '../utils/http'
 import { MessageSquare, Trash2, Plus, Bot, User, Copy, RotateCcw, Edit2, StopCircle, Download, ImageIcon } from 'lucide-vue-next'
 
-const route = useRoute()
-const { ensureSidecar, getBaseUrl } = useSidecar()
+const { getBaseUrl } = useSidecar()
 const configStore = useConfigStore()
 const chatStore = useChatStore()
 const skillStore = useSkillStore()
+const agentStore = useAgentStore()
 
 // 注入全局 Toast
 const showToast = inject<(message: string, type?: 'success' | 'error' | 'info') => void>('showToast', () => {})
@@ -239,6 +257,28 @@ const pendingImages = ref<string[]>([])
 const imageInputRef = ref<HTMLInputElement | null>(null)
 let currentAbortController: AbortController | null = null
 
+// 工具执行确认
+const pendingToolCall = computed(() => agentStore.pendingToolCall)
+const toolApprovalLoading = ref(false)
+
+function approvePendingTool() {
+  if (pendingToolCall.value && !toolApprovalLoading.value) {
+    toolApprovalLoading.value = true
+    agentStore.approveToolCall()
+    showToast('已批准工具执行', 'success')
+    toolApprovalLoading.value = false
+  }
+}
+
+function rejectPendingTool() {
+  if (pendingToolCall.value && !toolApprovalLoading.value) {
+    toolApprovalLoading.value = true
+    agentStore.rejectToolCall()
+    showToast('已拒绝工具执行', 'info')
+    toolApprovalLoading.value = false
+  }
+}
+
 // 可用模型列表：仅显示已配置供应商中已启用的模型
 const availableModels = computed(() => {
   return configStore.allEnabledModels()
@@ -264,12 +304,25 @@ function handleGlobalClick(e: MouseEvent) {
   }
 }
 
+function handleKeyDown(e: KeyboardEvent) {
+  if (!pendingToolCall.value) return
+  if (e.key === 'Enter' && e.ctrlKey) {
+    e.preventDefault()
+    approvePendingTool()
+  } else if (e.key === 'Escape') {
+    e.preventDefault()
+    rejectPendingTool()
+  }
+}
+
 onMounted(() => {
   document.addEventListener('click', handleGlobalClick)
+  document.addEventListener('keydown', handleKeyDown)
 })
 
 onUnmounted(() => {
   document.removeEventListener('click', handleGlobalClick)
+  document.removeEventListener('keydown', handleKeyDown)
 })
 
 function clearChat() {
@@ -1500,4 +1553,76 @@ onUnmounted(() => {
   cursor: pointer;
   line-height: 1;
 }
-</style>
+
+/* 工具执行确认对话框 */
+.tool-approval-modal {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+}
+.modal-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+}
+.modal-content {
+  position: relative;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  max-width: 500px;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+}
+.modal-content h3 {
+  margin: 0 0 var(--space-md) 0;
+  font-size: var(--font-size-lg);
+}
+.tool-name {
+  margin: var(--space-sm) 0;
+  font-size: var(--font-size-sm);
+}
+.tool-name code {
+  background: var(--color-bg-secondary);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-family: monospace;
+}
+.tool-args {
+  margin: var(--space-md) 0;
+}
+.tool-args p {
+  margin: 0 0 var(--space-sm) 0;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+.tool-args pre {
+  background: var(--color-bg-secondary);
+  padding: var(--space-sm);
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  font-size: var(--font-size-xs);
+  margin: 0;
+}
+.modal-hint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  margin: var(--space-sm) 0 0 0;
+}
+.modal-hint kbd {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+  font-size: var(--font-size-xs);
+  font-family: monospace;
+}
+.modal-actions {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+  justify-content: flex-end;
+}

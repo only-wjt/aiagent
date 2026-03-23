@@ -7,10 +7,12 @@ mod sse_proxy;
 mod config;
 mod agent_tools;
 mod crypto;
+mod mcp;
 
 use sidecar::SidecarManager;
 use sse_proxy::SseProxyState;
 use config::ConfigManager;
+use mcp::McpRegistry;
 use tauri::Manager;
 use tauri::tray::{TrayIconBuilder, MouseButton, MouseButtonState, TrayIconEvent};
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
@@ -57,6 +59,9 @@ pub fn run() {
     // 初始化 SSE 代理状态
     let sse_state = SseProxyState::new();
 
+    // 初始化 MCP 注册表
+    let mcp_registry = McpRegistry::new();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
@@ -65,6 +70,7 @@ pub fn run() {
         .manage(sidecar_mgr)
         .manage(sse_state)
         .manage(config_mgr)
+        .manage(mcp_registry)
         // 注册 IPC 命令
         .invoke_handler(tauri::generate_handler![
             // Sidecar 管理
@@ -93,6 +99,11 @@ pub fn run() {
             config::cmd_write_json,
             // Agent 工具执行
             agent_tools::cmd_execute_tool,
+            // MCP 进程管理
+            mcp::cmd_mcp_connect,
+            mcp::cmd_mcp_disconnect,
+            mcp::cmd_mcp_call_tool,
+            mcp::cmd_mcp_list_tools,
         ])
         // 应用初始化：创建系统托盘 + 恢复窗口状态
         .setup({

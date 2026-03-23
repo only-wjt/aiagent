@@ -173,7 +173,7 @@ async function createWorkspace() {
   showNewWorkspace.value = false
 }
 
-function openWorkspace(id: string) {
+function openWorkspace(_id: string) {
   router.push('/chat')
 }
 </script>

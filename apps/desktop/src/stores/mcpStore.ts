@@ -105,6 +105,55 @@ export const useMcpStore = defineStore('mcp', () => {
     }
   }
 
+  /** 连接 MCP 服务器（启动进程 + MCP 握手） */
+  async function connectTool (id: string) {
+    const t = tools.value.find(t => t.id === id)
+    if (!t || !invoke) return
+    t.status = 'disconnected'
+    try {
+      const toolDefs = await invoke('cmd_mcp_connect', {
+        toolId: id,
+        command: t.command,
+        env: t.env ?? {},
+      }) as Array<{ name: string; description: string; input_schema: unknown }>
+      t.status = 'connected'
+      console.debug(`[McpStore] ${t.name} 已连接，工具数: ${toolDefs.length}`)
+    } catch (e) {
+      t.status = 'error'
+      console.error(`[McpStore] ${t.name} 连接失败:`, e)
+    }
+  }
+
+  /** 断开 MCP 服务器 */
+  async function disconnectTool (id: string) {
+    const t = tools.value.find(t => t.id === id)
+    if (!t || !invoke) return
+    try {
+      await invoke('cmd_mcp_disconnect', { toolId: id })
+    } catch (e) {
+      console.warn(`[McpStore] ${t.name} 断开时出错:`, e)
+    }
+    t.status = 'disconnected'
+  }
+
+  /** 调用 MCP 工具 */
+  async function callMcpTool (toolId: string, toolName: string, args: Record<string, unknown>): Promise<string> {
+    if (!invoke) throw new Error('Tauri not available')
+    const result = await invoke('cmd_mcp_call_tool', {
+      toolId,
+      toolName,
+      arguments: args,
+    }) as { success: boolean; output: string; error?: string }
+    if (!result.success) throw new Error(result.error ?? 'MCP 调用失败')
+    return result.output
+  }
+
+  /** 启动所有已启用的工具 */
+  async function connectAllEnabled () {
+    const enabled = tools.value.filter(t => t.enabled)
+    await Promise.allSettled(enabled.map(t => connectTool(t.id)))
+  }
+
   return {
     tools,
     isLoaded,
@@ -113,5 +162,9 @@ export const useMcpStore = defineStore('mcp', () => {
     updateTool,
     removeTool,
     toggleTool,
+    connectTool,
+    disconnectTool,
+    callMcpTool,
+    connectAllEnabled,
   }
 })

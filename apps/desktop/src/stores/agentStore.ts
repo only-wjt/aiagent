@@ -187,6 +187,10 @@ export const useAgentStore = defineStore('agent', () => {
     bash: true, read_file: true, write_file: true, edit_file: true,
     list_dir: true, glob: true, grep: true,
   })
+  /** 待确认的工具调用 */
+  const pendingToolCall = ref<{ toolCall: ToolCall; messageId: string } | null>(null)
+  /** 用户确认/拒绝的Promise resolve */
+  let confirmResolve: ((approved: boolean) => void) | null = null
 
   /** 构建分层 System Prompt */
   function buildSystemPrompt(): string {
@@ -218,6 +222,32 @@ export const useAgentStore = defineStore('agent', () => {
   }
 
   // ==================== 核心方法 ====================
+
+  /** 请求用户确认工具调用 */
+  async function requestToolApproval(toolCall: ToolCall, messageId: string): Promise<boolean> {
+    pendingToolCall.value = { toolCall, messageId }
+    return new Promise((resolve) => {
+      confirmResolve = resolve
+    })
+  }
+
+  /** 用户确认工具调用 */
+  function approveToolCall() {
+    if (confirmResolve) {
+      confirmResolve(true)
+      confirmResolve = null
+    }
+    pendingToolCall.value = null
+  }
+
+  /** 用户拒绝工具调用 */
+  function rejectToolCall() {
+    if (confirmResolve) {
+      confirmResolve(false)
+      confirmResolve = null
+    }
+    pendingToolCall.value = null
+  }
 
   /** 在 Tauri 后端执行工具 */
   async function executeTool(name: string, args: Record<string, unknown>): Promise<{ success: boolean; output: string; error?: string }> {
@@ -367,10 +397,28 @@ export const useAgentStore = defineStore('agent', () => {
         let hasToolCalls = false
         let stopReason = ''
 
-        if (endpointType === 'anthropic') {
-          // ===== Anthropic 流式 =====
-          const url = `${baseUrl}/v1/messages`
-          console.debug('[Agent] Anthropic 流式请求:', url)
+        if (endpointType === 'anthropic' || endpointType === 'gemini') {
+          // ===== Anthropic / Gemini 流式（Gemini 经 sidecar proxy 转换格式）=====
+          let url: string
+          const reqHeaders: Record<string, string> = { 'Content-Type': 'application/json' }
+
+          if (endpointType === 'gemini') {
+            // 通过 sidecar proxy 转换：发送 Anthropic 格式，sidecar 转为 Gemini 原生格式
+            const port = invoke
+              ? await (invoke('cmd_get_session_port', { sessionId: 'default' }) as Promise<number | null>).catch(() => null)
+              : null
+            const proxyBase = port ? `http://localhost:${port}` : 'http://localhost:3700'
+            url = `${proxyBase}/proxy/v1/messages`
+            reqHeaders['x-target-provider'] = 'gemini'
+            reqHeaders['x-target-baseurl'] = baseUrl
+            reqHeaders['x-api-key'] = provider.apiKey
+            console.debug('[Agent] Gemini via sidecar proxy:', url)
+          } else {
+            url = `${baseUrl}/v1/messages`
+            reqHeaders['x-api-key'] = provider.apiKey
+            reqHeaders['anthropic-version'] = '2023-06-01'
+            console.debug('[Agent] Anthropic 流式请求:', url)
+          }
 
           const anthropicTools = getEnabledAnthropicTools()
 
@@ -402,11 +450,7 @@ export const useAgentStore = defineStore('agent', () => {
           abortController.value = new AbortController()
           const response = await apiFetch(url, {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'x-api-key': provider.apiKey,
-              'anthropic-version': '2023-06-01',
-            },
+            headers: reqHeaders,
             body: JSON.stringify({
               model: currentModel.value,
               max_tokens: 8192,
@@ -420,7 +464,7 @@ export const useAgentStore = defineStore('agent', () => {
 
           if (!response.ok) {
             const errorBody = await response.text().catch(() => '')
-            throw new Error(`Anthropic API 返回 ${response.status}: ${errorBody.slice(0, 300)}`)
+            throw new Error(`${endpointType === 'gemini' ? 'Gemini' : 'Anthropic'} API 返回 ${response.status}: ${errorBody.slice(0, 300)}`)
           }
 
           // 流式解析 Anthropic SSE
@@ -592,6 +636,25 @@ export const useAgentStore = defineStore('agent', () => {
 
         // 执行每个工具调用
         for (const toolCall of agentMsg.toolCalls) {
+          // action 模式下请求用户确认
+          if (permissionMode.value === 'action') {
+            toolCall.status = 'pending'
+            const approved = await requestToolApproval(toolCall, agentMsg.id)
+            if (!approved) {
+              toolCall.status = 'error'
+              toolCall.error = '用户拒绝执行'
+              messages.value.push({
+                id: crypto.randomUUID(),
+                role: 'tool',
+                content: `用户拒绝执行 ${toolCall.name} 工具`,
+                createdAt: new Date().toISOString(),
+                toolCallId: toolCall.id,
+                toolName: toolCall.name,
+              })
+              continue
+            }
+          }
+
           toolCall.status = 'running'
           const startTime = Date.now()
           const result = await executeTool(toolCall.name, toolCall.args)
@@ -684,12 +747,15 @@ export const useAgentStore = defineStore('agent', () => {
     streamingMsgId,
     updateTick,
     enabledTools,
+    pendingToolCall,
     sendMessage,
     stopProcessing,
     clearMessages,
     setWorkspace,
     setModel,
     setPermissionMode,
+    approveToolCall,
+    rejectToolCall,
     AGENT_TOOLS,
   }
 })

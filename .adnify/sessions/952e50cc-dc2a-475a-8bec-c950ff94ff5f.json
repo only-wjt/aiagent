@@ -1,0 +1,16 @@
+{
+  "id": "952e50cc-dc2a-475a-8bec-c950ff94ff5f",
+  "createdAt": 1774269464627,
+  "lastModified": 1774269464627,
+  "messages": [],
+  "contextItems": [],
+  "streamState": {
+    "phase": "idle"
+  },
+  "toolStreamingPreviews": {},
+  "compressionStats": null,
+  "contextSummary": null,
+  "handoffRequired": false,
+  "isCompacting": false,
+  "compressionPhase": "idle"
+}

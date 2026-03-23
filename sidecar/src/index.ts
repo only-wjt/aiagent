@@ -12,6 +12,7 @@ import { AgentSession, type AgentSessionConfig, type StreamCallbacks } from './a
 import { SessionManager } from './agent/session'
 import { buildSystemPrompt } from './agent/prompt'
 import { handleProxyRoute } from './adapters/registry'
+import { executeIPCCommand, type IPCCommand } from './ipc/handler'
 import * as path from 'path'
 import * as fs from 'fs'
 
@@ -97,6 +98,12 @@ async function handleRequest (req: Request): Promise<Response> {
 
     if (routePath === '/api/config' && req.method === 'GET') {
       return Response.json({ port: PORT, workspace: WORKSPACE }, { headers: corsHeaders })
+    }
+
+    // ==================== IPC 命令执行 ====================
+
+    if (routePath === '/api/ipc/execute' && req.method === 'POST') {
+      return await handleIPCExecute(req, corsHeaders)
     }
 
     // ==================== 协议转换代理 ====================
@@ -307,19 +314,30 @@ async function handleChatStream (
 /**
  * 停止响应
  */
-function handleChatStop (
+async function handleChatStop (
   req: Request,
   headers: Record<string, string>
-): Response {
-  const url = new URL(req.url)
-  const sessionId = url.searchParams.get('sessionId') || 'default'
-
-  const session = activeSessions.get(sessionId)
-  if (session) {
-    session.stop()
+): Promise<Response> {
+  // 支持从 body 或 query 参数获取 sessionId
+  let sessionId = 'default'
+  try {
+    const body = await req.json() as { sessionId?: string }
+    sessionId = body.sessionId || 'default'
+  } catch {
+    const url = new URL(req.url)
+    sessionId = url.searchParams.get('sessionId') || 'default'
   }
 
-  return Response.json({ stopped: true }, { headers })
+  // 遍历所有匹配此 sessionId 的活跃会话并停止
+  let stopped = false
+  for (const [key, session] of activeSessions.entries()) {
+    if (key.startsWith(sessionId + ':')) {
+      session.stop()
+      stopped = true
+    }
+  }
+
+  return Response.json({ stopped }, { headers })
 }
 
 /**
@@ -348,6 +366,25 @@ async function handleSessionCreate (
   })
 
   return Response.json(meta, { headers })
+}
+
+/**
+ * 执行 IPC 命令
+ */
+async function handleIPCExecute (
+  req: Request,
+  headers: Record<string, string>
+): Promise<Response> {
+  try {
+    const body = await req.json() as IPCCommand
+    const result = await executeIPCCommand(body, WORKSPACE)
+    return Response.json(result, { headers })
+  } catch (error) {
+    return Response.json(
+      { success: false, error: (error as Error).message },
+      { status: 400, headers }
+    )
+  }
 }
 
 // ==================== 工具函数 ====================

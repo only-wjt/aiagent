@@ -90,6 +90,7 @@ export const useChatStore = defineStore('chat', () => {
   async function init () {
     if (isLoaded.value) return
     await loadConversationList()
+    await loadPinnedState()
     isLoaded.value = true
   }
 
@@ -173,8 +174,17 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  /** 保存当前对话到文件系统 */
+  /** 保存防抖定时器 */
+  let saveTimer: ReturnType<typeof setTimeout> | null = null
+
+  /** 保存当前对话到文件系统（防抖，500ms 内多次调用只执行最后一次） */
   async function saveCurrentConversation () {
+    if (saveTimer) clearTimeout(saveTimer)
+    saveTimer = setTimeout(() => _doSaveConversation(), 500)
+  }
+
+  /** 实际执行保存 */
+  async function _doSaveConversation () {
     if (!invoke || !currentConversationId.value) return
     try {
       // 自动生成标题：取第一条用户消息的前 30 字
@@ -267,11 +277,42 @@ export const useChatStore = defineStore('chat', () => {
     messages.value = []
   }
 
-  /** 置顶/取消置顶 */
-  function togglePin (id: string) {
+  /** 置顶/取消置顶（同步持久化） */
+  async function togglePin (id: string) {
     const conv = conversations.value.find(c => c.id === id)
     if (conv) {
       conv.pinned = !conv.pinned
+      // 将置顶状态持久化
+      if (invoke) {
+        try {
+          const pinnedIds = conversations.value
+            .filter(c => c.pinned)
+            .map(c => c.id)
+          await invoke('cmd_write_json', {
+            filename: 'pinned_conversations.json',
+            data: pinnedIds,
+          })
+        } catch (e) {
+          console.error('[ChatStore] 保存置顶状态失败:', e)
+        }
+      }
+    }
+  }
+
+  /** 加载置顶状态 */
+  async function loadPinnedState () {
+    if (!invoke) return
+    try {
+      const pinnedIds = await invoke('cmd_read_json', {
+        filename: 'pinned_conversations.json',
+      }) as string[] | null
+      if (pinnedIds && Array.isArray(pinnedIds)) {
+        for (const conv of conversations.value) {
+          conv.pinned = pinnedIds.includes(conv.id)
+        }
+      }
+    } catch {
+      // 首次运行无置顶数据，忽略
     }
   }
 

@@ -1,7 +1,8 @@
 {
-  "currentThreadId": "64e0fe65-026c-4c38-aaab-9dc76c7685d8",
+  "currentThreadId": "88aad89e-9aaa-43dd-b5ac-7db332574126",
   "threadIds": [
-    "64e0fe65-026c-4c38-aaab-9dc76c7685d8"
+    "64e0fe65-026c-4c38-aaab-9dc76c7685d8",
+    "88aad89e-9aaa-43dd-b5ac-7db332574126"
   ],
   "extra": {
     "branches": {},
@@ -76,6 +77,15 @@
         "timestamp": 1774244268288,
         "fileSnapshots": {},
         "description": "继续",
+        "images": [],
+        "contextItems": []
+      },
+      {
+        "id": "c630fbbc-eb83-452d-80e4-adeef45b66af",
+        "messageId": "b135a8b9-eb00-443b-a46e-02e09de73b8b",
+        "timestamp": 1774269177149,
+        "fileSnapshots": {},
+        "description": "重启下当前项目",
         "images": [],
         "contextItems": []
       }
