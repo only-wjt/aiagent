@@ -354,6 +354,122 @@ export const useChatStore = defineStore('chat', () => {
     messages.value.push(msg)
   }
 
+  /** 从当前对话或指定对话创建分叉 */
+  async function forkConversation (sourceId: string | null = currentConversationId.value, upToMessageId?: string): Promise<string | null> {
+    if (!sourceId) return null
+
+    const invoke = await getTauriInvoke()
+    if (!invoke) return null
+
+    try {
+      const source = await invoke('cmd_load_conversation', { id: sourceId }) as {
+        id: string
+        title: string
+        model: string
+        provider_id?: string | null
+        workspace_id?: string | null
+        agent_mode?: AgentSessionMode | null
+        enabled_tools?: Record<string, boolean> | null
+        messages: Array<{
+          id: string
+          role: string
+          content: Array<{ type: string; text?: string; name?: string; id?: string; image_url?: { url: string } }>
+          created_at: string
+          usage?: string
+          thinking?: string | null
+          thinking_duration?: number | null
+          tool_calls?: PersistedToolCall[] | null
+          tool_call_id?: string | null
+          tool_name?: string | null
+        }>
+      }
+
+      const allMessages = source.messages.map(message => ({
+        id: message.id,
+        role: normalizeChatMessageRole(message.role),
+        content: message.content.map(block => ({ ...block })),
+        createdAt: message.created_at,
+        usage: message.usage,
+        thinking: message.thinking || undefined,
+        thinkingDuration: message.thinking_duration || undefined,
+        toolCalls: message.tool_calls?.map(tool => ({ ...tool, args: { ...tool.args } })),
+        toolCallId: message.tool_call_id || undefined,
+        toolName: message.tool_name || undefined,
+      }))
+      const cutIndex = upToMessageId
+        ? allMessages.findIndex(message => message.id === upToMessageId)
+        : allMessages.length - 1
+      const forkedMessages = allMessages
+        .slice(0, cutIndex >= 0 ? cutIndex + 1 : allMessages.length)
+        .map(message => ({
+          ...message,
+          content: message.content.map(block => ({ ...block })),
+          toolCalls: message.toolCalls?.map(tool => ({ ...tool, args: { ...tool.args } })),
+        }))
+
+      const forkedId = crypto.randomUUID()
+      const now = new Date().toISOString()
+      const forkedTitle = `${source.title || '新对话'} · 分叉`
+      const conversation = {
+        id: forkedId,
+        title: forkedTitle,
+        model: source.model,
+        provider_id: source.provider_id || null,
+        workspace_id: source.workspace_id || null,
+        agent_mode: source.agent_mode || null,
+        enabled_tools: source.enabled_tools || null,
+        created_at: now,
+        updated_at: now,
+        messages: forkedMessages.map(message => ({
+          id: message.id,
+          role: message.role,
+          content: message.content.map(block => ({
+            type: block.type,
+            text: block.text || null,
+            name: block.name || null,
+            id: block.id || null,
+            image_url: block.image_url || null,
+          })),
+          created_at: message.createdAt,
+          usage: message.usage || null,
+          thinking: message.thinking || null,
+          thinking_duration: message.thinkingDuration || null,
+          tool_calls: message.toolCalls || null,
+          tool_call_id: message.toolCallId || null,
+          tool_name: message.toolName || null,
+        })),
+      }
+
+      await invoke('cmd_save_conversation', { conversation })
+
+      currentConversationId.value = forkedId
+      currentModel.value = source.model
+      currentProviderId.value = source.provider_id || null
+      currentAgentMode.value = source.agent_mode || null
+      currentEnabledTools.value = source.enabled_tools || null
+      messages.value = forkedMessages
+
+      const previewMessage = [...forkedMessages].reverse().find(message => message.role !== 'tool')
+        || forkedMessages[forkedMessages.length - 1]
+      conversations.value.unshift({
+        id: forkedId,
+        title: forkedTitle,
+        model: source.model,
+        providerId: source.provider_id || undefined,
+        workspaceId: source.workspace_id || undefined,
+        createdAt: now,
+        updatedAt: now,
+        messageCount: forkedMessages.length,
+        preview: previewMessage?.content.find(block => block.type === 'text')?.text?.slice(0, 80) || '',
+      })
+
+      return forkedId
+    } catch (e) {
+      console.error('[ChatStore] 分叉对话失败:', e)
+      return null
+    }
+  }
+
   /** 清空当前对话（不删除文件，仅清空内存） */
   function clearCurrentMessages () {
     messages.value = []
@@ -421,6 +537,7 @@ export const useChatStore = defineStore('chat', () => {
     saveCurrentConversation,
     deleteConversation,
     addMessage,
+    forkConversation,
     clearCurrentMessages,
     togglePin,
   }

@@ -160,6 +160,9 @@
         <button class="ctx-item" @click="startRename">
           <Edit3 :size="14" /> 重命名
         </button>
+        <button class="ctx-item" @click="forkChat">
+          <GitBranch :size="14" /> 分叉对话
+        </button>
         <button class="ctx-item" @click="exportChat">
           <Download :size="14" /> 导出 Markdown
         </button>
@@ -194,7 +197,7 @@ import { useChatStore } from '../stores/chatStore'
 import { useWorkspaceStore } from '../stores/workspaceStore'
 import {
   MessageSquare, ChevronLeft, ChevronRight, ChevronDown,
-  Plus, Trash2, Search, Edit3, Download, Pin, Bot, Folder,
+  Plus, Trash2, Search, Edit3, Download, Pin, Bot, Folder, GitBranch,
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -375,6 +378,14 @@ async function exportChat() {
   a.download = `${title.replace(/[/\\?%*:|"<>]/g, '_')}.md`
   a.click()
   URL.revokeObjectURL(url)
+}
+
+async function forkChat() {
+  const id = await chatStore.forkConversation(contextMenu.chatId)
+  contextMenu.visible = false
+  if (id) {
+    router.push(`/chat/${id}`)
+  }
 }
 
 function deleteChatFromMenu() {
