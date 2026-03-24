@@ -168,8 +168,8 @@
                   v-for="m in availableModels"
                   :key="m.id + '-' + m.providerId"
                   class="model-option"
-                  :class="{ active: currentModel === m.id }"
-                  @click="selectModel(m.id)"
+                  :class="{ active: currentModel === m.id && currentProviderId === m.providerId }"
+                  @click="selectModel(m.id, m.providerId)"
                 >
                   <span class="model-option-name">{{ m.name }}</span>
                   <span class="model-option-desc">{{ m.providerName }}</span>
@@ -243,6 +243,10 @@ const currentModel = computed({
   get: () => chatStore.currentModel,
   set: (v) => { chatStore.currentModel = v },
 })
+const currentProviderId = computed({
+  get: () => chatStore.currentProviderId,
+  set: (v) => { chatStore.currentProviderId = v },
+})
 
 const inputText = ref('')
 const isStreaming = ref(false)
@@ -286,7 +290,7 @@ const availableModels = computed(() => {
   return configStore.allEnabledModels()
 })
 const selectedProvider = computed(() => {
-  return configStore.findProviderByModel(currentModel.value) || configStore.defaultProvider
+  return configStore.findProviderByModel(currentModel.value, currentProviderId.value || undefined) || configStore.defaultProvider
 })
 const activeSidecarSessionId = computed(() => chatStore.currentConversationId || 'default')
 const activeWorkspacePath = computed(() => configStore.appConfig.defaultWorkspacePath || '~')
@@ -298,8 +302,9 @@ function modelDisplayName(id: string) {
   return id.length > 25 ? id.slice(0, 22) + '…' : id
 }
 
-function selectModel(id: string) {
+function selectModel(id: string, providerId: string) {
   currentModel.value = id
+  currentProviderId.value = providerId
   showModelPicker.value = false
 }
 
@@ -369,7 +374,7 @@ function clearChat() {
 
 function newChat() {
   clearChat()
-  chatStore.createConversation()
+  chatStore.createConversation(currentModel.value, undefined, selectedProvider.value?.id || currentProviderId.value || undefined)
   inputText.value = ''
   textareaRef.value?.focus()
 }
@@ -455,10 +460,13 @@ async function sendMessage() {
 
   // 获取 API Key
   const provider = selectedProvider.value
+  if (provider?.id && currentProviderId.value !== provider.id) {
+    currentProviderId.value = provider.id
+  }
 
   // 如果还没有当前对话，创建一个
   if (!chatStore.currentConversationId) {
-    chatStore.createConversation()
+    chatStore.createConversation(currentModel.value, undefined, provider?.id || currentProviderId.value || undefined)
   }
 
   // 构建 content 数组（支持图片）

@@ -265,6 +265,8 @@ pub struct Conversation {
     pub id: String,
     pub title: String,
     pub model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub messages: Vec<ChatMessage>,
@@ -276,6 +278,8 @@ pub struct ConversationSummary {
     pub id: String,
     pub title: String,
     pub model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub message_count: usize,
@@ -336,6 +340,7 @@ impl ConfigManager {
                                 id: conv.id,
                                 title: conv.title,
                                 model: conv.model,
+                                provider_id: conv.provider_id.clone(),
                                 created_at: conv.created_at,
                                 updated_at: conv.updated_at,
                                 message_count: conv.messages.len(),

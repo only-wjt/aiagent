@@ -33,6 +33,7 @@ export interface ConversationSummary {
   id: string
   title: string
   model: string
+  providerId?: string
   createdAt: string
   updatedAt: string
   messageCount: number
@@ -46,6 +47,7 @@ export interface Conversation {
   id: string
   title: string
   model: string
+  providerId?: string
   createdAt: string
   updatedAt: string
   messages: ChatMessage[]
@@ -65,6 +67,9 @@ export const useChatStore = defineStore('chat', () => {
 
   /** 当前对话模型 */
   const currentModel = ref('claude-sonnet-4-20250514')
+
+  /** 当前对话供应商 */
+  const currentProviderId = ref<string | null>(null)
 
   /** 是否已加载 */
   const isLoaded = ref(false)
@@ -95,6 +100,7 @@ export const useChatStore = defineStore('chat', () => {
     try {
       const list = await invoke('cmd_list_conversations') as Array<{
         id: string; title: string; model: string;
+        provider_id?: string | null;
         created_at: string; updated_at: string;
         message_count: number; preview: string;
       }>
@@ -102,6 +108,7 @@ export const useChatStore = defineStore('chat', () => {
         id: c.id,
         title: c.title,
         model: c.model,
+        providerId: c.provider_id || undefined,
         createdAt: c.created_at,
         updatedAt: c.updated_at,
         messageCount: c.message_count,
@@ -113,14 +120,16 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   /** 创建新对话 */
-  function createConversation (model?: string, workspaceId?: string): string {
+  function createConversation (model?: string, workspaceId?: string, providerId?: string): string {
     const id = crypto.randomUUID()
     const now = new Date().toISOString()
     const m = model || currentModel.value
+    const p = providerId ?? currentProviderId.value ?? undefined
 
     // 切换到新对话
     currentConversationId.value = id
     currentModel.value = m
+    currentProviderId.value = p || null
     messages.value = []
 
     // 立即添加到列表顶部
@@ -128,6 +137,7 @@ export const useChatStore = defineStore('chat', () => {
       id,
       title: '新对话',
       model: m,
+      providerId: p,
       createdAt: now,
       updatedAt: now,
       messageCount: 0,
@@ -145,6 +155,7 @@ export const useChatStore = defineStore('chat', () => {
     try {
       const conv = await invoke('cmd_load_conversation', { id }) as {
         id: string; title: string; model: string;
+        provider_id?: string | null;
         created_at: string; updated_at: string;
         messages: Array<{
           id: string; role: string;
@@ -155,6 +166,7 @@ export const useChatStore = defineStore('chat', () => {
 
       currentConversationId.value = conv.id
       currentModel.value = conv.model
+      currentProviderId.value = conv.provider_id || null
       messages.value = conv.messages.map(m => ({
         id: m.id,
         role: m.role as 'user' | 'assistant',
@@ -200,6 +212,7 @@ export const useChatStore = defineStore('chat', () => {
         id: currentConversationId.value,
         title,
         model: currentModel.value,
+        provider_id: currentProviderId.value,
         created_at: currentConversation.value?.createdAt || now,
         updated_at: now,
         messages: messages.value.map(m => ({
@@ -229,6 +242,7 @@ export const useChatStore = defineStore('chat', () => {
         id: currentConversationId.value,
         title,
         model: currentModel.value,
+        providerId: currentProviderId.value || undefined,
         createdAt: conversation.created_at,
         updatedAt: now,
         messageCount: messages.value.length,
@@ -256,6 +270,7 @@ export const useChatStore = defineStore('chat', () => {
       // 如果删除的是当前对话，清空状态
       if (currentConversationId.value === id) {
         currentConversationId.value = null
+        currentProviderId.value = null
         messages.value = []
       }
     } catch (e) {
@@ -321,6 +336,7 @@ export const useChatStore = defineStore('chat', () => {
     currentConversationId,
     messages,
     currentModel,
+    currentProviderId,
     isLoaded,
     // 计算属性
     currentConversation,

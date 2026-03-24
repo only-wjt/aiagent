@@ -168,6 +168,7 @@ export const useAgentStore = defineStore('agent', () => {
   const isProcessing = ref(false)
   const currentWorkspace = ref('')
   const currentModel = ref('')
+  const currentProviderId = ref<string | null>(null)
   const permissionMode = ref<PermissionMode>('autonomous')
   const abortController = ref<AbortController | null>(null)
   /** 当前正在流式输出的消息 ID（用于 UI 显示打字光标） */
@@ -325,7 +326,10 @@ export const useAgentStore = defineStore('agent', () => {
     const configStore = useConfigStore()
 
     // 根据当前模型找到所属 provider
-    const provider = configStore.findProviderByModel(currentModel.value) || configStore.defaultProvider
+    const provider = configStore.findProviderByModel(currentModel.value, currentProviderId.value || undefined) || configStore.defaultProvider
+    if (provider?.id && currentProviderId.value !== provider.id) {
+      currentProviderId.value = provider.id
+    }
     if (!provider || !provider.apiKey) {
       messages.value.push({
         id: crypto.randomUUID(),
@@ -734,8 +738,9 @@ export const useAgentStore = defineStore('agent', () => {
   }
 
   /** 设置模型 */
-  function setModel(model: string) {
+  function setModel(model: string, providerId?: string | null) {
     currentModel.value = model
+    currentProviderId.value = providerId ?? null
   }
 
   /** 设置权限模式 */
@@ -762,6 +767,7 @@ export const useAgentStore = defineStore('agent', () => {
     isProcessing,
     currentWorkspace,
     currentModel,
+    currentProviderId,
     permissionMode,
     streamingMsgId,
     updateTick,

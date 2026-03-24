@@ -221,10 +221,10 @@
               </div>
               <div
                 v-for="m in availableModels"
-                :key="m.id"
+                :key="m.id + '-' + m.providerId"
                 class="model-option"
-                :class="{ active: agentStore.currentModel === m.id }"
-                @click="agentStore.setModel(m.id); showModelPicker = false"
+                :class="{ active: agentStore.currentModel === m.id && agentStore.currentProviderId === m.providerId }"
+                @click="agentStore.setModel(m.id, m.providerId); showModelPicker = false"
               >
                 <span class="model-option-name">{{ m.name }}</span>
                 <span class="model-option-desc">{{ m.providerName }}</span>
@@ -355,7 +355,7 @@ onMounted(async () => {
   }
   const models = configStore.allEnabledModels()
   if (models.length > 0 && !agentStore.currentModel) {
-    agentStore.setModel(models[0].id)
+    agentStore.setModel(models[0].id, models[0].providerId)
   }
 })
 </script>
