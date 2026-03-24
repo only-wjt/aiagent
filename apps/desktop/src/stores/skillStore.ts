@@ -141,7 +141,9 @@ export const useSkillStore = defineStore('skill', () => {
 
   async function save () {
     const invoke = await getTauriInvoke()
-    if (!invoke) return
+    if (!invoke) {
+      throw new Error('Tauri not available')
+    }
     try {
       const data: SkillsData = {
         builtinEnabled: Object.fromEntries(builtinSkills.value.map(s => [s.id, s.enabled])),
@@ -150,6 +152,7 @@ export const useSkillStore = defineStore('skill', () => {
       await invoke('cmd_write_json', { filename: 'skills.json', data: JSON.stringify(data) })
     } catch (e) {
       console.error('[SkillStore] 保存失败:', e)
+      throw e
     }
   }
 

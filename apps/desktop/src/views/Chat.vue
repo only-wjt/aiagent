@@ -152,6 +152,10 @@
     <!-- 输入区域 -->
     <div class="chat-input-area">
       <div class="chat-input-container" :class="{ focused: isFocused }">
+        <div v-if="editingMessageId" class="edit-banner">
+          <span class="edit-banner-text">正在编辑历史消息，发送后会从该消息开始重写后续对话</span>
+          <button class="edit-banner-btn" @click="cancelEditingMessage">取消</button>
+        </div>
         <!-- 图片预览 -->
         <div v-if="pendingImages.length > 0" class="image-preview-row">
           <div v-for="(img, i) in pendingImages" :key="i" class="image-preview-item">
@@ -276,6 +280,7 @@ const currentProviderId = computed({
 })
 
 const inputText = ref('')
+const editingMessageId = ref<string | null>(null)
 const isStreaming = ref(false)
 const streamingText = ref('')
 const streamingUsage = ref('')
@@ -393,6 +398,9 @@ async function syncChatSessionFromRoute() {
   if (isStreaming.value && sessionId !== chatStore.currentConversationId) {
     stopStreaming()
   }
+  if (sessionId !== chatStore.currentConversationId) {
+    editingMessageId.value = null
+  }
   if (sessionId && chatStore.currentConversationId !== sessionId) {
     await chatStore.loadConversation(sessionId)
   }
@@ -414,6 +422,8 @@ watch(() => route.params.sessionId, () => {
 function clearChat() {
   if (isStreaming.value) stopStreaming()
   chatStore.clearCurrentMessages()
+  editingMessageId.value = null
+  void chatStore.saveCurrentConversation()
 }
 
 function newChat() {
@@ -425,6 +435,7 @@ function newChat() {
   )
   router.push(`/chat/${sessionId}`)
   inputText.value = ''
+  editingMessageId.value = null
   textareaRef.value?.focus()
 }
 
@@ -588,6 +599,10 @@ async function sendMessage() {
 
   // 获取 API Key
   const provider = selectedProvider.value
+  if (!provider?.apiKey) {
+    showToast('当前模型供应商未配置 API Key，请先前往设置完成配置', 'error')
+    return
+  }
   if (provider?.id && currentProviderId.value !== provider.id) {
     currentProviderId.value = provider.id
   }
@@ -600,6 +615,14 @@ async function sendMessage() {
       provider?.id || currentProviderId.value || undefined,
     )
     router.replace(`/chat/${sessionId}`)
+  }
+
+  if (editingMessageId.value) {
+    const editIndex = chatStore.messages.findIndex(msg => msg.id === editingMessageId.value)
+    if (editIndex >= 0) {
+      chatStore.messages.splice(editIndex)
+    }
+    editingMessageId.value = null
   }
 
   // 构建 content 数组（支持图片）
@@ -633,11 +656,7 @@ async function sendMessage() {
   streamingUsage.value = ''
 
   try {
-    if (provider?.apiKey) {
-      await streamAuto(text, provider.apiKey, provider.baseUrl, provider.endpointType)
-    } else {
-      await mockStream(text)
-    }
+    await streamAuto(text, provider.apiKey, provider.baseUrl, provider.endpointType)
   } catch (error) {
     console.error('[Chat] 发送消息失败:', error)
     streamingText.value = `❌ 错误: ${(error as Error).message}`
@@ -1064,29 +1083,6 @@ async function waitForSidecarReady(sidecarUrl: string, retries: number = 8, dela
   return false
 }
 
-/** 模拟流式输出（无 API Key 时） */
-async function mockStream(prompt: string) {
-  const response = `你好！我是 AI Agent。
-
-你说的是：「${prompt}」
-
-⚠️ **API Key 未配置**
-
-请前往 **设置 → 模型供应商** 页面：
-1. 找到 **Anthropic** 供应商
-2. 输入你的 API Key
-3. 点击 **测试连接**
-
-配置完成后，我就能真正为你提供 AI 服务了！🚀`
-
-  for (const char of response) {
-    if (!isStreaming.value) break
-    streamingText.value += char
-    scrollToBottom()
-    await new Promise(r => setTimeout(r, 15))
-  }
-}
-
 function stopStreaming() {
   isStreaming.value = false
   currentAbortController?.abort()
@@ -1150,21 +1146,21 @@ async function regenerateMessage(idx: number) {
     }
   }
   if (!userPrompt) return
+  const provider = selectedProvider.value
+  if (!provider?.apiKey) {
+    showToast('当前模型供应商未配置 API Key，无法重新生成', 'error')
+    return
+  }
   // 删除该条 AI 消息
   chatStore.messages.splice(idx, 1)
   scrollToBottom()
 
   // 直接发起流式请求，不再添加用户消息
-  const provider = selectedProvider.value
   isStreaming.value = true
   streamingText.value = ''
   streamingUsage.value = ''
   try {
-    if (provider?.apiKey) {
-      await streamAuto(userPrompt, provider.apiKey, provider.baseUrl, provider.endpointType)
-    } else {
-      await mockStream(userPrompt)
-    }
+    await streamAuto(userPrompt, provider.apiKey, provider.baseUrl, provider.endpointType)
   } catch (error) {
     streamingText.value = `❌ 错误: ${(error as Error).message}`
   }
@@ -1184,18 +1180,25 @@ async function regenerateMessage(idx: number) {
   await chatStore.saveCurrentConversation()
 }
 
-/** 编辑重试：将用户消息填回输入框，并删除该消息及其之后的所有消息 */
+function cancelEditingMessage() {
+  editingMessageId.value = null
+}
+
+/** 编辑重试：将用户消息填回输入框，发送时再截断该消息之后的历史 */
 function editMessage(idx: number) {
   const msg = chatStore.messages[idx]
   inputText.value = getMessageText(msg)
-  // 删除当前消息及之后所有
-  chatStore.messages.splice(idx)
+  editingMessageId.value = msg.id
   nextTick(() => textareaRef.value?.focus())
 }
 
 /** 删除单条消息 */
 function deleteMessage(idx: number) {
+  const deletedMessage = chatStore.messages[idx]
   chatStore.messages.splice(idx, 1)
+  if (deletedMessage?.id === editingMessageId.value) {
+    editingMessageId.value = null
+  }
   chatStore.saveCurrentConversation()
 }
 
@@ -1670,6 +1673,33 @@ onUnmounted(() => {
 .chat-input-container.focused {
   border-color: var(--color-primary);
   box-shadow: 0 0 0 3px var(--color-primary-bg), var(--shadow-md);
+}
+
+.edit-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-warning, #f59e0b) 12%, var(--color-bg-secondary));
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.edit-banner-text {
+  line-height: 1.5;
+}
+
+.edit-banner-btn {
+  border: none;
+  background: transparent;
+  color: var(--color-primary);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  padding: 0;
 }
 
 .chat-textarea {

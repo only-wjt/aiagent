@@ -22,7 +22,7 @@
             <div class="skill-header">
               <span class="skill-name">{{ skill.name }}</span>
               <label class="toggle" :title="skill.enabled ? '点击禁用' : '点击启用'">
-                <input type="checkbox" v-model="skill.enabled" @change="onToggle(skill)" />
+                <input type="checkbox" :checked="skill.enabled" @change="onToggle(skill.id, ($event.target as HTMLInputElement).checked)" />
                 <span class="slider"></span>
               </label>
             </div>
@@ -55,11 +55,11 @@
             <div class="custom-info">
               <span class="custom-name">{{ skill.name }}</span>
               <label class="toggle">
-                <input type="checkbox" v-model="skill.enabled" />
+                <input type="checkbox" :checked="skill.enabled" @change="toggleCustomSkill(skill.id)" />
                 <span class="slider"></span>
               </label>
             </div>
-            <button class="btn-icon btn-delete" @click="removeCustomSkill(skill.id)" title="删除">🗑️</button>
+            <button class="btn-icon btn-delete" @click="requestRemoveCustomSkill(skill.id, skill.name)" title="删除">🗑️</button>
           </div>
           <p class="custom-prompt">{{ skill.prompt }}</p>
         </div>
@@ -87,11 +87,23 @@
         </div>
       </div>
     </div>
+
+    <div v-if="deleteDialog.visible" class="modal-overlay" @click.self="closeDeleteDialog">
+      <div class="delete-modal card">
+        <h4 class="form-title">删除自定义技能</h4>
+        <p class="delete-hint">删除后将移除这条自定义 Prompt 配置。</p>
+        <div class="delete-name">{{ deleteDialog.skillName }}</div>
+        <div class="form-actions">
+          <button class="btn btn-ghost" @click="closeDeleteDialog">取消</button>
+          <button class="btn btn-danger" @click="confirmRemoveCustomSkill">确认删除</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, inject } from 'vue'
 import { useSkillStore } from '../../stores/skillStore'
 
 const skillStore = useSkillStore()
@@ -101,21 +113,70 @@ const customSkills = skillStore.customSkills
 
 const showAddCustom = ref(false)
 const newSkill = reactive({ name: '', prompt: '' })
+const deleteDialog = reactive({ visible: false, skillId: '', skillName: '' })
+const showToast = inject<(message: string, type?: 'success' | 'error' | 'info') => void>('showToast', () => {})
 
-function onToggle(skill: { id: string; enabled: boolean }) {
-  skillStore.toggleBuiltin(skill.id)
+async function onToggle(id: string, enabled: boolean) {
+  const skill = builtinSkills.find(item => item.id === id)
+  if (!skill) return
+  try {
+    await skillStore.toggleBuiltin(id)
+    showToast(enabled ? '技能已启用' : '技能已禁用', 'success')
+  } catch (error) {
+    skill.enabled = !enabled
+    console.error('[SkillSettings] 切换内置技能失败:', error)
+    showToast('技能状态保存失败', 'error')
+  }
 }
 
 async function addCustomSkill() {
   if (!newSkill.name.trim()) return
-  await skillStore.addCustomSkill(newSkill.name, newSkill.prompt)
-  newSkill.name = ''
-  newSkill.prompt = ''
-  showAddCustom.value = false
+  try {
+    await skillStore.addCustomSkill(newSkill.name, newSkill.prompt)
+    newSkill.name = ''
+    newSkill.prompt = ''
+    showAddCustom.value = false
+    showToast('自定义技能已添加', 'success')
+  } catch (error) {
+    console.error('[SkillSettings] 添加自定义技能失败:', error)
+    showToast('自定义技能添加失败', 'error')
+  }
 }
 
-async function removeCustomSkill(id: string) {
-  await skillStore.removeCustomSkill(id)
+async function toggleCustomSkill(id: string) {
+  const skill = customSkills.find(item => item.id === id)
+  if (!skill) return
+  try {
+    await skillStore.toggleCustomSkill(id)
+    showToast(skill.enabled ? '自定义技能已启用' : '自定义技能已禁用', 'success')
+  } catch (error) {
+    skill.enabled = !skill.enabled
+    console.error('[SkillSettings] 切换自定义技能失败:', error)
+    showToast('自定义技能状态保存失败', 'error')
+  }
+}
+
+function requestRemoveCustomSkill(id: string, name: string) {
+  deleteDialog.visible = true
+  deleteDialog.skillId = id
+  deleteDialog.skillName = name
+}
+
+function closeDeleteDialog() {
+  deleteDialog.visible = false
+  deleteDialog.skillId = ''
+  deleteDialog.skillName = ''
+}
+
+async function confirmRemoveCustomSkill() {
+  try {
+    await skillStore.removeCustomSkill(deleteDialog.skillId)
+    closeDeleteDialog()
+    showToast('自定义技能已删除', 'success')
+  } catch (error) {
+    console.error('[SkillSettings] 删除自定义技能失败:', error)
+    showToast('自定义技能删除失败', 'error')
+  }
 }
 </script>
 
@@ -170,6 +231,8 @@ async function removeCustomSkill(id: string) {
 .custom-prompt { font-size: var(--font-size-sm); color: var(--color-text-tertiary); white-space: pre-wrap; max-height: 80px; overflow: hidden; }
 .btn-icon { background: none; border: none; cursor: pointer; font-size: 16px; padding: 4px; border-radius: var(--radius-sm); transition: all var(--transition-fast); }
 .btn-delete:hover { background: rgba(255, 77, 79, 0.1); }
+.btn-danger { background: var(--color-error); color: #fff; border: none; }
+.btn-danger:hover { filter: brightness(0.95); }
 
 /* 添加表单 */
 .add-form { padding: var(--space-lg); }
@@ -179,4 +242,34 @@ async function removeCustomSkill(id: string) {
 .textarea { resize: vertical; min-height: 80px; font-family: var(--font-sans); line-height: 1.5; }
 .form-actions { display: flex; justify-content: flex-end; gap: var(--space-sm); }
 .btn-sm { padding: 4px 12px; font-size: var(--font-size-xs); }
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+}
+
+.delete-modal {
+  width: min(420px, calc(100vw - 32px));
+  padding: var(--space-xl);
+}
+
+.delete-hint {
+  margin: 0 0 var(--space-md);
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+.delete-name {
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
+  font-weight: 600;
+  margin-bottom: var(--space-md);
+}
 </style>

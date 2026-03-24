@@ -255,6 +255,7 @@ export const useConfigStore = defineStore('config', () => {
         })
       } catch (e) {
         console.error('[ConfigStore] 保存应用配置失败:', e)
+        throw e
       }
     }
   }
