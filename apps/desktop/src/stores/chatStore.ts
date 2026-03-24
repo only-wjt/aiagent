@@ -48,6 +48,7 @@ export interface Conversation {
   title: string
   model: string
   providerId?: string
+  workspaceId?: string
   createdAt: string
   updatedAt: string
   messages: ChatMessage[]
@@ -101,6 +102,7 @@ export const useChatStore = defineStore('chat', () => {
       const list = await invoke('cmd_list_conversations') as Array<{
         id: string; title: string; model: string;
         provider_id?: string | null;
+        workspace_id?: string | null;
         created_at: string; updated_at: string;
         message_count: number; preview: string;
       }>
@@ -109,6 +111,7 @@ export const useChatStore = defineStore('chat', () => {
         title: c.title,
         model: c.model,
         providerId: c.provider_id || undefined,
+        workspaceId: c.workspace_id || undefined,
         createdAt: c.created_at,
         updatedAt: c.updated_at,
         messageCount: c.message_count,
@@ -156,6 +159,7 @@ export const useChatStore = defineStore('chat', () => {
       const conv = await invoke('cmd_load_conversation', { id }) as {
         id: string; title: string; model: string;
         provider_id?: string | null;
+        workspace_id?: string | null;
         created_at: string; updated_at: string;
         messages: Array<{
           id: string; role: string;
@@ -167,6 +171,11 @@ export const useChatStore = defineStore('chat', () => {
       currentConversationId.value = conv.id
       currentModel.value = conv.model
       currentProviderId.value = conv.provider_id || null
+      const summary = conversations.value.find(c => c.id === conv.id)
+      if (summary) {
+        summary.workspaceId = conv.workspace_id || undefined
+        summary.providerId = conv.provider_id || undefined
+      }
       messages.value = conv.messages.map(m => ({
         id: m.id,
         role: m.role as 'user' | 'assistant',
@@ -213,6 +222,7 @@ export const useChatStore = defineStore('chat', () => {
         title,
         model: currentModel.value,
         provider_id: currentProviderId.value,
+        workspace_id: currentConversation.value?.workspaceId || null,
         created_at: currentConversation.value?.createdAt || now,
         updated_at: now,
         messages: messages.value.map(m => ({
@@ -243,6 +253,7 @@ export const useChatStore = defineStore('chat', () => {
         title,
         model: currentModel.value,
         providerId: currentProviderId.value || undefined,
+        workspaceId: currentConversation.value?.workspaceId,
         createdAt: conversation.created_at,
         updatedAt: now,
         messageCount: messages.value.length,

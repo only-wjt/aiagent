@@ -732,6 +732,11 @@ export const useAgentStore = defineStore('agent', () => {
     messages.value = []
   }
 
+  /** 用持久化会话内容替换当前消息 */
+  function replaceMessages(nextMessages: AgentMessage[]) {
+    messages.value = nextMessages
+  }
+
   /** 设置工作区 */
   function setWorkspace(path: string) {
     currentWorkspace.value = path
@@ -776,6 +781,7 @@ export const useAgentStore = defineStore('agent', () => {
     sendMessage,
     stopProcessing,
     clearMessages,
+    replaceMessages,
     setWorkspace,
     setModel,
     setPermissionMode,

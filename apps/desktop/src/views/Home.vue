@@ -186,8 +186,13 @@ async function createWorkspace() {
   showNewWorkspace.value = false
 }
 
-function openWorkspace(_id: string) {
-  router.push('/chat')
+function openWorkspace(id: string) {
+  chatStore.currentModel = selectedModel.value
+  chatStore.currentProviderId = selectedProviderId.value
+  const existingSession = chatStore.conversations.find(c => c.workspaceId === id)
+  const sessionId = existingSession?.id
+    || chatStore.createConversation(selectedModel.value, id, selectedProviderId.value || undefined)
+  router.push(`/agent/${sessionId}`)
 }
 </script>
 
