@@ -1,0 +1,203 @@
+cd /Users/onlywjt/Documents/ai_project/aiagent && bun run tauri:dev
+]633;P;HasRichCommandDetection=True[1m[7m%[27m[1m[0m                                                                                ]633;D]633;P;Cwd=/Users/onlywjt/Documents/ai_project/aiagent[0m[27m[24m[J]633;A
+[38;5;30m[21:43:54][00m[0m[24m with [38;5;031monlywjt[00m[0m[24m in [1m[38;5;091maiagent[00m[0m[24m on git:[00m[0m[24m[38;5;031mcodereview[00m[0m[24m[38;5;031m ✘[00m[0m[24m[38;5;031m[00m[0m[24m
+[32m$[00m[0m[24m ]633;B[K[?1h=[?2004hccd /Users/onlywjt/Documents/ai_project/aiagent && bun run tauri:dev[67D[32mc[32md[39m [4m/[4mU[4ms[4me[4mr[4ms[4m/[4mo[4mn[4ml[4my[4mw[4mj[4mt[4m/[4mD[4mo[4mc[4mu[4mm[4me[4mn[4mt[4ms[4m/[4ma[4mi[4m_[4mp[4mr[4mo[4mj[4me[4mc[4mt[4m/[4ma[4mi[4ma[4mg[4me[4mn[4mt[24m[4C[32mb[32mu[32mn[39m[14C[?1l>[?2004l
+]633;E;cd /Users/onlywjt/Documents/ai_project/aiagent && bun run tauri:dev;70f61565-a7f1-4271-bcf8-f306ade50cb1]633;C[0m[2m[35m$[0m [2m[1mbun run --filter @aiagent/desktop tauri dev[0m
+[?2026h[1m@aiagent/desktop[0m tauri $ [2mtauri[0m
+[36m│[0m      Running BeforeDevCommand (`bun run dev`)
+[36m└─[0m [36mRunning...[0m
+[?2026l[?2026h[0G[K[1A[K[1A[K[1A[K[1m@aiagent/desktop[0m tauri $ [2mtauri[0m
+[36m│[0m      Running BeforeDevCommand (`bun run dev`)
+[36m│[0m $ vite
+[36m└─[0m [36mRunning...[0m
+[?2026l[?2026h[0G[K[1A[K[1A[K[1A[K[1A[K[1m@aiagent/desktop[0m tauri $ [2mtauri[0m
+[36m│[0m      Running BeforeDevCommand (`bun run dev`)
+[36m│[0m $ vite
+[36m│[0m 
+[36m│[0m   VITE v6.4.1  ready in 162 ms
+[36m└─[0m [36mRunning...[0m
+[?2026l[?2026h[0G[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1m@aiagent/desktop[0m tauri $ [2mtauri[0m
+[36m│[0m      Running BeforeDevCommand (`bun run dev`)
+[36m│[0m $ vite
+[36m│[0m 
+[36m│[0m   VITE v6.4.1  ready in 162 ms
+[36m│[0m 
+[36m│[0m   ➜  Local:   http://localhost:5174/
+[36m└─[0m [36mRunning...[0m
+[?2026l[?2026h[0G[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1m@aiagent/desktop[0m tauri $ [2mtauri[0m
+[36m│[0m      Running BeforeDevCommand (`bun run dev`)
+[36m│[0m $ vite
+[36m│[0m 
+[36m│[0m   VITE v6.4.1  ready in 162 ms
+[36m│[0m 
+[36m│[0m   ➜  Local:   http://localhost:5174/
+[36m│[0m      Running DevCommand (`cargo  run --no-default-features --color always --`)
+[36m└─[0m [36mRunning...[0m
+[?2026l[?2026h[0G[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1m@aiagent/desktop[0m tauri $ [2mtauri[0m
+[36m│[0m      Running BeforeDevCommand (`bun run dev`)
+[36m│[0m $ vite
+[36m│[0m 
+[36m│[0m   VITE v6.4.1  ready in 162 ms
+[36m│[0m 
+[36m│[0m   ➜  Local:   http://localhost:5174/
+[36m│[0m      Running DevCommand (`cargo  run --no-default-features --color always --`)
+[36m│[0m         Info Watching /Users/onlywjt/Documents/ai_project/aiagent/apps/desktop/src-tauri for changes...
+[36m└─[0m [36mRunning...[0m
+[?2026l[?2026h[0G[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1m@aiagent/desktop[0m tauri $ [2mtauri[0m
+[36m│[0m [2m[7 lines elided][0m
+[36m│[0m         Info Watching /Users/onlywjt/Documents/ai_project/aiagent/apps/desktop/src-tauri for changes...
+[36m│[0m [0m[1m[33mwarning[0m[0m[1m: method `set_binary_path` is never used[0m
+[36m│[0m [0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/sidecar.rs:75:12[0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m|[0m
+[36m│[0m [0m[1m[38;5;12m64[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mimpl SidecarManager {[0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m|[0m[0m [0m[0m[1m[38;5;12m-------------------[0m[0m [0m[0m[1m[38;5;12mmethod in this implementation[0m
+[36m│[0m [0m[1m[38;5;12m...[0m
+[36m│[0m [0m[1m[38;5;12m75[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    pub fn set_binary_path(&self, path: PathBuf) {[0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m|[0m[0m            [0m[0m[1m[33m^^^^^^^^^^^^^^^[0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m|[0m
+[36m└─[0m [36mRunning...[0m
+[?2026l[?2026h[0G[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1m@aiagent/desktop[0m tauri $ [2mtauri[0m
+[36m│[0m [2m[31 lines elided][0m
+[36m│[0m [0m[1m[33mwarning[0m[0m[1m: field `tool_id` is never read[0m
+[36m│[0m [0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/mcp.rs:31:9[0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m|[0m
+[36m│[0m [0m[1m[38;5;12m30[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub struct McpHandle {[0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m|[0m[0m            [0m[0m[1m[38;5;12m---------[0m[0m [0m[0m[1m[38;5;12mfield in this struct[0m
+[36m│[0m [0m[1m[38;5;12m31[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    pub tool_id: String,[0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m|[0m[0m         [0m[0m[1m[33m^^^^^^^[0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m|[0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: `McpHandle` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis[0m
+[36m└─[0m [36mRunning...[0m
+[?2026l[?2026h[0G[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1m@aiagent/desktop[0m tauri $ [2mtauri[0m
+[36m│[0m [2m[32 lines elided][0m
+[36m│[0m [0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/mcp.rs:31:9[0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m|[0m
+[36m│[0m [0m[1m[38;5;12m30[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub struct McpHandle {[0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m|[0m[0m            [0m[0m[1m[38;5;12m---------[0m[0m [0m[0m[1m[38;5;12mfield in this struct[0m
+[36m│[0m [0m[1m[38;5;12m31[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    pub tool_id: String,[0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m|[0m[0m         [0m[0m[1m[33m^^^^^^^[0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m|[0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: `McpHandle` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis[0m
+[36m│[0m 
+[36m│[0m [1m[33mwarning[0m: `aiagent-desktop` (lib) generated 3 warnings
+[36m└─[0m [36mRunning...[0m
+[?2026l[?2026h[0G[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1m@aiagent/desktop[0m tauri $ [2mtauri[0m
+[36m│[0m [2m[33 lines elided][0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m|[0m
+[36m│[0m [0m[1m[38;5;12m30[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub struct McpHandle {[0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m|[0m[0m            [0m[0m[1m[38;5;12m---------[0m[0m [0m[0m[1m[38;5;12mfield in this struct[0m
+[36m│[0m [0m[1m[38;5;12m31[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    pub tool_id: String,[0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m|[0m[0m         [0m[0m[1m[33m^^^^^^^[0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m|[0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: `McpHandle` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis[0m
+[36m│[0m 
+[36m│[0m [1m[33mwarning[0m: `aiagent-desktop` (lib) generated 3 warnings
+[36m│[0m [1m[92m    Finished[0m `dev` profile [unoptimized + debuginfo] target(s) in 0.22s
+[36m└─[0m [36mRunning...[0m
+[?2026l[?2026h[0G[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1m@aiagent/desktop[0m tauri $ [2mtauri[0m
+[36m│[0m [2m[34 lines elided][0m
+[36m│[0m [0m[1m[38;5;12m30[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub struct McpHandle {[0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m|[0m[0m            [0m[0m[1m[38;5;12m---------[0m[0m [0m[0m[1m[38;5;12mfield in this struct[0m
+[36m│[0m [0m[1m[38;5;12m31[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    pub tool_id: String,[0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m|[0m[0m         [0m[0m[1m[33m^^^^^^^[0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m|[0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: `McpHandle` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis[0m
+[36m│[0m 
+[36m│[0m [1m[33mwarning[0m: `aiagent-desktop` (lib) generated 3 warnings
+[36m│[0m [1m[92m    Finished[0m `dev` profile [unoptimized + debuginfo] target(s) in 0.22s
+[36m│[0m [1m[92m     Running[0m `target/debug/aiagent-desktop`
+[36m└─[0m [36mRunning...[0m
+[?2026l[?2026h[0G[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1m@aiagent/desktop[0m tauri $ [2mtauri[0m
+[36m│[0m [2m[35 lines elided][0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m|[0m[0m            [0m[0m[1m[38;5;12m---------[0m[0m [0m[0m[1m[38;5;12mfield in this struct[0m
+[36m│[0m [0m[1m[38;5;12m31[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    pub tool_id: String,[0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m|[0m[0m         [0m[0m[1m[33m^^^^^^^[0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m|[0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: `McpHandle` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis[0m
+[36m│[0m 
+[36m│[0m [1m[33mwarning[0m: `aiagent-desktop` (lib) generated 3 warnings
+[36m│[0m [1m[92m    Finished[0m `dev` profile [unoptimized + debuginfo] target(s) in 0.22s
+[36m│[0m [1m[92m     Running[0m `target/debug/aiagent-desktop`
+[36m│[0m 2026-03-23 21:44:23.275 aiagent-desktop[11664:71617] TSM AdjustCapsLockLEDForKeyTransitionHandling - _ISSetPhysicalKeyboardCapsLockLED Inhibit
+[36m└─[0m [36mRunning...[0m
+[?2026l[?2026h[0G[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1m@aiagent/desktop[0m tauri $ [2mtauri[0m
+[36m│[0m [2m[36 lines elided][0m
+[36m│[0m [0m[1m[38;5;12m31[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    pub tool_id: String,[0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m|[0m[0m         [0m[0m[1m[33m^^^^^^^[0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m|[0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: `McpHandle` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis[0m
+[36m│[0m 
+[36m│[0m [1m[33mwarning[0m: `aiagent-desktop` (lib) generated 3 warnings
+[36m│[0m [1m[92m    Finished[0m `dev` profile [unoptimized + debuginfo] target(s) in 0.22s
+[36m│[0m [1m[92m     Running[0m `target/debug/aiagent-desktop`
+[36m│[0m 2026-03-23 21:44:23.275 aiagent-desktop[11664:71617] TSM AdjustCapsLockLEDForKeyTransitionHandling - _ISSetPhysicalKeyboardCapsLockLED Inhibit
+[36m│[0m 2026-03-23 21:44:23.306 aiagent-desktop[11664:71617] error messaging the mach port for IMKCFRunLoopWakeUpReliable
+[36m└─[0m [36mRunning...[0m
+[?2026l[?2026h[0G[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1m@aiagent/desktop[0m tauri $ [2mtauri[0m
+[36m│[0m [2m[37 lines elided][0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m|[0m[0m         [0m[0m[1m[33m^^^^^^^[0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m|[0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: `McpHandle` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis[0m
+[36m│[0m 
+[36m│[0m [1m[33mwarning[0m: `aiagent-desktop` (lib) generated 3 warnings
+[36m│[0m [1m[92m    Finished[0m `dev` profile [unoptimized + debuginfo] target(s) in 0.22s
+[36m│[0m [1m[92m     Running[0m `target/debug/aiagent-desktop`
+[36m│[0m 2026-03-23 21:44:23.275 aiagent-desktop[11664:71617] TSM AdjustCapsLockLEDForKeyTransitionHandling - _ISSetPhysicalKeyboardCapsLockLED Inhibit
+[36m│[0m 2026-03-23 21:44:23.306 aiagent-desktop[11664:71617] error messaging the mach port for IMKCFRunLoopWakeUpReliable
+[36m│[0m 9:46:29 PM [vite] (client) hmr update /src/views/settings/ProviderSettings.vue
+[36m└─[0m [36mRunning...[0m
+[?2026l[?2026h[0G[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1m@aiagent/desktop[0m tauri $ [2mtauri[0m
+[36m│[0m [2m[38 lines elided][0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m|[0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: `McpHandle` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis[0m
+[36m│[0m 
+[36m│[0m [1m[33mwarning[0m: `aiagent-desktop` (lib) generated 3 warnings
+[36m│[0m [1m[92m    Finished[0m `dev` profile [unoptimized + debuginfo] target(s) in 0.22s
+[36m│[0m [1m[92m     Running[0m `target/debug/aiagent-desktop`
+[36m│[0m 2026-03-23 21:44:23.275 aiagent-desktop[11664:71617] TSM AdjustCapsLockLEDForKeyTransitionHandling - _ISSetPhysicalKeyboardCapsLockLED Inhibit
+[36m│[0m 2026-03-23 21:44:23.306 aiagent-desktop[11664:71617] error messaging the mach port for IMKCFRunLoopWakeUpReliable
+[36m│[0m 9:46:29 PM [vite] (client) hmr update /src/views/settings/ProviderSettings.vue
+[36m│[0m 9:46:46 PM [vite] (client) hmr update /src/views/settings/ProviderSettings.vue
+[36m└─[0m [36mRunning...[0m
+[?2026l[?2026h[0G[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1m@aiagent/desktop[0m tauri $ [2mtauri[0m
+[36m│[0m [2m[39 lines elided][0m
+[36m│[0m [0m   [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: `McpHandle` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis[0m
+[36m│[0m 
+[36m│[0m [1m[33mwarning[0m: `aiagent-desktop` (lib) generated 3 warnings
+[36m│[0m [1m[92m    Finished[0m `dev` profile [unoptimized + debuginfo] target(s) in 0.22s
+[36m│[0m [1m[92m     Running[0m `target/debug/aiagent-desktop`
+[36m│[0m 2026-03-23 21:44:23.275 aiagent-desktop[11664:71617] TSM AdjustCapsLockLEDForKeyTransitionHandling - _ISSetPhysicalKeyboardCapsLockLED Inhibit
+[36m│[0m 2026-03-23 21:44:23.306 aiagent-desktop[11664:71617] error messaging the mach port for IMKCFRunLoopWakeUpReliable
+[36m│[0m 9:46:29 PM [vite] (client) hmr update /src/views/settings/ProviderSettings.vue
+[36m│[0m 9:46:46 PM [vite] (client) hmr update /src/views/settings/ProviderSettings.vue
+[36m│[0m 9:47:04 PM [vite] (client) hmr update /src/views/settings/ProviderSettings.vue
+[36m└─[0m [36mRunning...[0m
+[?2026l[?2026h[0G[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1m@aiagent/desktop[0m tauri $ [2mtauri[0m
+[36m│[0m [2m[40 lines elided][0m
+[36m│[0m 
+[36m│[0m [1m[33mwarning[0m: `aiagent-desktop` (lib) generated 3 warnings
+[36m│[0m [1m[92m    Finished[0m `dev` profile [unoptimized + debuginfo] target(s) in 0.22s
+[36m│[0m [1m[92m     Running[0m `target/debug/aiagent-desktop`
+[36m│[0m 2026-03-23 21:44:23.275 aiagent-desktop[11664:71617] TSM AdjustCapsLockLEDForKeyTransitionHandling - _ISSetPhysicalKeyboardCapsLockLED Inhibit
+[36m│[0m 2026-03-23 21:44:23.306 aiagent-desktop[11664:71617] error messaging the mach port for IMKCFRunLoopWakeUpReliable
+[36m│[0m 9:46:29 PM [vite] (client) hmr update /src/views/settings/ProviderSettings.vue
+[36m│[0m 9:46:46 PM [vite] (client) hmr update /src/views/settings/ProviderSettings.vue
+[36m│[0m 9:47:04 PM [vite] (client) hmr update /src/views/settings/ProviderSettings.vue
+[36m│[0m 9:47:13 PM [vite] (client) hmr update /src/views/settings/ProviderSettings.vue
+[36m└─[0m [36mRunning...[0m
+[?2026l[?2026h[0G[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1A[K[1m@aiagent/desktop[0m tauri $ [2mtauri[0m
+[36m│[0m [2m[40 lines elided][0m
+[36m│[0m 
+[36m│[0m [1m[33mwarning[0m: `aiagent-desktop` (lib) generated 3 warnings
+[36m│[0m [1m[92m    Finished[0m `dev` profile [unoptimized + debuginfo] target(s) in 0.22s
+[36m│[0m [1m[92m     Running[0m `target/debug/aiagent-desktop`
+[36m│[0m 2026-03-23 21:44:23.275 aiagent-desktop[11664:71617] TSM AdjustCapsLockLEDForKeyTransitionHandling - _ISSetPhysicalKeyboardCapsLockLED Inhibit
+[36m│[0m 2026-03-23 21:44:23.306 aiagent-desktop[11664:71617] error messaging the mach port for IMKCFRunLoopWakeUpReliable
+[36m│[0m 9:46:29 PM [vite] (client) hmr update /src/views/settings/ProviderSettings.vue
+[36m│[0m 9:46:46 PM [vite] (client) hmr update /src/views/settings/ProviderSettings.vue
+[36m│[0m 9:47:04 PM [vite] (client) hmr update /src/views/settings/ProviderSettings.vue
+[36m│[0m 9:47:13 PM [vite] (client) hmr update /src/views/settings/ProviderSettings.vue
+[36m└─[0m [36mDone in 3125.90 s[0m
+[?2026l[1m[7m%[27m[1m[0m                                                            ]633;D;0]633;P;Cwd=/Users/onlywjt/Documents/ai_project/aiagent[0m[27m[24m[J]633;A
+[38;5;30m[23:15:08][00m[0m[24m with [38;5;031monlywjt[00m[0m[24m in [1m[38;5;091maiagent[00m[0m[24m on git:[00m[0m[24m[38;5;031mcodereview[00m[0m[24m[38;5;031m ✘[00m[0m[24m[38;5;031m[00m[0m[24m
+[32m$[00m[0m[24m ]633;B[K[?1h=[?2004h

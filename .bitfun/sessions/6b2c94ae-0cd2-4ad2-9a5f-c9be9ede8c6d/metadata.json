@@ -1,0 +1,20 @@
+{
+  "schema_version": 2,
+  "sessionId": "6b2c94ae-0cd2-4ad2-9a5f-c9be9ede8c6d",
+  "sessionName": "创建分支操作",
+  "agentType": "agentic",
+  "modelName": "auto",
+  "createdAt": 1774271896291,
+  "lastActiveAt": 1774273649119,
+  "turnCount": 14,
+  "messageCount": 57,
+  "toolCallCount": 71,
+  "status": "active",
+  "tags": [],
+  "customMetadata": {
+    "kind": "normal",
+    "lastFinishedAt": 1774273649116
+  },
+  "todos": [],
+  "workspacePath": "/Users/onlywjt/Documents/ai_project/aiagent"
+}
