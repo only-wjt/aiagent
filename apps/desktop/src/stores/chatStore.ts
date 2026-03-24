@@ -76,6 +76,30 @@ export interface Conversation {
   messages: ChatMessage[]
 }
 
+type LoadedConversationPayload = {
+  id: string
+  title: string
+  model: string
+  provider_id?: string | null
+  workspace_id?: string | null
+  agent_mode?: AgentSessionMode | null
+  enabled_tools?: Record<string, boolean> | null
+  created_at: string
+  updated_at: string
+  messages: Array<{
+    id: string
+    role: string
+    content: Array<{ type: string; text?: string; name?: string; id?: string; image_url?: { url: string } }>
+    created_at: string
+    usage?: string
+    thinking?: string | null
+    thinking_duration?: number | null
+    tool_calls?: PersistedToolCall[] | null
+    tool_call_id?: string | null
+    tool_name?: string | null
+  }>
+}
+
 export const useChatStore = defineStore('chat', () => {
   // ==================== 状态 ====================
 
@@ -113,6 +137,34 @@ export const useChatStore = defineStore('chat', () => {
   function normalizeChatMessageRole(role: string): ChatMessageRole {
     if (role === 'assistant' || role === 'tool') return role
     return 'user'
+  }
+
+  async function fetchConversationPayload(id: string): Promise<LoadedConversationPayload | null> {
+    const invoke = await getTauriInvoke()
+    if (!invoke) return null
+
+    try {
+      return await invoke('cmd_load_conversation', { id }) as LoadedConversationPayload
+    } catch (e) {
+      console.error('[ChatStore] 读取对话快照失败:', e)
+      return null
+    }
+  }
+
+  function mapConversationMessages(payload: LoadedConversationPayload['messages']): ChatMessage[] {
+    return payload.map(m => ({
+      id: m.id,
+      role: normalizeChatMessageRole(m.role),
+      content: m.content.map(b => ({ ...b })),
+      createdAt: m.created_at,
+      usage: m.usage,
+      model: (m as any).model,
+      thinking: m.thinking || undefined,
+      thinkingDuration: m.thinking_duration || undefined,
+      toolCalls: m.tool_calls || undefined,
+      toolCallId: m.tool_call_id || undefined,
+      toolName: m.tool_name || undefined,
+    }))
   }
 
   // ==================== 初始化 ====================
@@ -188,27 +240,9 @@ export const useChatStore = defineStore('chat', () => {
 
   /** 加载指定对话 */
   async function loadConversation (id: string) {
-    const invoke = await getTauriInvoke()
-    if (!invoke) return
     try {
-      const conv = await invoke('cmd_load_conversation', { id }) as {
-        id: string; title: string; model: string;
-        provider_id?: string | null;
-        workspace_id?: string | null;
-        agent_mode?: AgentSessionMode | null;
-        enabled_tools?: Record<string, boolean> | null;
-        created_at: string; updated_at: string;
-        messages: Array<{
-          id: string; role: string;
-          content: Array<{ type: string; text?: string; name?: string; id?: string; image_url?: { url: string } }>;
-          created_at: string; usage?: string;
-          thinking?: string | null;
-          thinking_duration?: number | null;
-          tool_calls?: PersistedToolCall[] | null;
-          tool_call_id?: string | null;
-          tool_name?: string | null;
-        }>;
-      }
+      const conv = await fetchConversationPayload(id)
+      if (!conv) return
 
       currentConversationId.value = conv.id
       currentModel.value = conv.model
@@ -220,21 +254,76 @@ export const useChatStore = defineStore('chat', () => {
         summary.workspaceId = conv.workspace_id || undefined
         summary.providerId = conv.provider_id || undefined
       }
-      messages.value = conv.messages.map(m => ({
-        id: m.id,
-        role: normalizeChatMessageRole(m.role),
-        content: m.content.map(b => ({ ...b })),
-        createdAt: m.created_at,
-        usage: m.usage,
-        model: (m as any).model,
-        thinking: m.thinking || undefined,
-        thinkingDuration: m.thinking_duration || undefined,
-        toolCalls: m.tool_calls || undefined,
-        toolCallId: m.tool_call_id || undefined,
-        toolName: m.tool_name || undefined,
-      }))
+      messages.value = mapConversationMessages(conv.messages)
     } catch (e) {
       console.error('[ChatStore] 加载对话失败:', e)
+    }
+  }
+
+  async function getConversationSnapshot(id: string): Promise<Conversation | null> {
+    const payload = await fetchConversationPayload(id)
+    if (!payload) return null
+
+    return {
+      id: payload.id,
+      title: payload.title,
+      model: payload.model,
+      providerId: payload.provider_id || undefined,
+      workspaceId: payload.workspace_id || undefined,
+      agentMode: payload.agent_mode || undefined,
+      enabledTools: payload.enabled_tools || undefined,
+      createdAt: payload.created_at,
+      updatedAt: payload.updated_at,
+      messages: mapConversationMessages(payload.messages),
+    }
+  }
+
+  async function renameConversation(id: string, title: string): Promise<boolean> {
+    const invoke = await getTauriInvoke()
+    const snapshot = await getConversationSnapshot(id)
+    if (!invoke || !snapshot) return false
+
+    const conversation = {
+      id: snapshot.id,
+      title,
+      model: snapshot.model,
+      provider_id: snapshot.providerId || null,
+      workspace_id: snapshot.workspaceId || null,
+      agent_mode: snapshot.agentMode || null,
+      enabled_tools: snapshot.enabledTools || null,
+      created_at: snapshot.createdAt,
+      updated_at: new Date().toISOString(),
+      messages: snapshot.messages.map(m => ({
+        id: m.id,
+        role: m.role,
+        content: m.content.map(b => ({
+          type: b.type,
+          text: b.text || null,
+          name: b.name || null,
+          id: b.id || null,
+          image_url: b.image_url || null,
+        })),
+        created_at: m.createdAt,
+        usage: m.usage || null,
+        thinking: m.thinking || null,
+        thinking_duration: m.thinkingDuration || null,
+        tool_calls: m.toolCalls || null,
+        tool_call_id: m.toolCallId || null,
+        tool_name: m.toolName || null,
+      })),
+    }
+
+    try {
+      await invoke('cmd_save_conversation', { conversation })
+      const summary = conversations.value.find(c => c.id === id)
+      if (summary) {
+        summary.title = title
+        summary.updatedAt = conversation.updated_at
+      }
+      return true
+    } catch (e) {
+      console.error('[ChatStore] 重命名对话失败:', e)
+      return false
     }
   }
 
@@ -362,40 +451,10 @@ export const useChatStore = defineStore('chat', () => {
     if (!invoke) return null
 
     try {
-      const source = await invoke('cmd_load_conversation', { id: sourceId }) as {
-        id: string
-        title: string
-        model: string
-        provider_id?: string | null
-        workspace_id?: string | null
-        agent_mode?: AgentSessionMode | null
-        enabled_tools?: Record<string, boolean> | null
-        messages: Array<{
-          id: string
-          role: string
-          content: Array<{ type: string; text?: string; name?: string; id?: string; image_url?: { url: string } }>
-          created_at: string
-          usage?: string
-          thinking?: string | null
-          thinking_duration?: number | null
-          tool_calls?: PersistedToolCall[] | null
-          tool_call_id?: string | null
-          tool_name?: string | null
-        }>
-      }
+      const source = await fetchConversationPayload(sourceId)
+      if (!source) return null
 
-      const allMessages = source.messages.map(message => ({
-        id: message.id,
-        role: normalizeChatMessageRole(message.role),
-        content: message.content.map(block => ({ ...block })),
-        createdAt: message.created_at,
-        usage: message.usage,
-        thinking: message.thinking || undefined,
-        thinkingDuration: message.thinking_duration || undefined,
-        toolCalls: message.tool_calls?.map(tool => ({ ...tool, args: { ...tool.args } })),
-        toolCallId: message.tool_call_id || undefined,
-        toolName: message.tool_name || undefined,
-      }))
+      const allMessages = mapConversationMessages(source.messages)
       const cutIndex = upToMessageId
         ? allMessages.findIndex(message => message.id === upToMessageId)
         : allMessages.length - 1
@@ -534,6 +593,8 @@ export const useChatStore = defineStore('chat', () => {
     loadConversationList,
     createConversation,
     loadConversation,
+    getConversationSnapshot,
+    renameConversation,
     saveCurrentConversation,
     deleteConversation,
     addMessage,

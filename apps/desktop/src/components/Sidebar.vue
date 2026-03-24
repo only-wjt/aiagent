@@ -191,7 +191,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useChatStore } from '../stores/chatStore'
 import { useWorkspaceStore } from '../stores/workspaceStore'
@@ -245,9 +245,10 @@ function openAgentSession(sessionId: string) {
 function switchTab(tab: 'chat' | 'agent') {
   activeTab.value = tab
   if (tab === 'agent') {
-    router.push('/agent')
+    router.push(activeAgentSession.value ? `/agent/${activeAgentSession.value}` : '/agent')
   } else {
-    router.push('/chat')
+    const currentChatId = chatStore.currentConversation?.workspaceId ? null : chatStore.currentConversationId
+    router.push(currentChatId ? `/chat/${currentChatId}` : '/chat')
   }
 }
 
@@ -304,12 +305,11 @@ const groupedChats = computed(() => {
 
 const currentChatId = computed(() => chatStore.currentConversationId)
 
-// 根据路由自动判断 Tab
-if (route.path === '/' || route.path.startsWith('/settings')) {
-  activeTab.value = 'agent'
-} else {
-  activeTab.value = 'chat'
-}
+watch(() => route.path, (path) => {
+  activeTab.value = (path === '/' || path.startsWith('/settings') || path.startsWith('/agent'))
+    ? 'agent'
+    : 'chat'
+}, { immediate: true })
 
 function toggleCollapse() {
   isCollapsed.value = !isCollapsed.value
@@ -327,7 +327,12 @@ async function openChat(chatId: string) {
 }
 
 async function deleteChat(chatId: string) {
+  const isCurrentChat = route.path.startsWith('/chat') && route.params.sessionId === chatId
   await chatStore.deleteConversation(chatId)
+  if (isCurrentChat) {
+    const nextChat = chatStore.conversations.find(c => !c.workspaceId)
+    router.replace(nextChat ? `/chat/${nextChat.id}` : '/chat')
+  }
 }
 
 // ====== 右键菜单 ======
@@ -355,18 +360,17 @@ function startRename() {
 
 async function confirmRename() {
   if (!renameDialog.title.trim()) return
-  await chatStore.loadConversation(renameDialog.chatId)
-  const conv = chatStore.conversations.find(c => c.id === renameDialog.chatId)
-  if (conv) conv.title = renameDialog.title.trim()
-  await chatStore.saveCurrentConversation()
+  await chatStore.renameConversation(renameDialog.chatId, renameDialog.title.trim())
   renameDialog.visible = false
+  contextMenu.visible = false
 }
 
 async function exportChat() {
-  await chatStore.loadConversation(contextMenu.chatId)
+  const conversation = await chatStore.getConversationSnapshot(contextMenu.chatId)
+  if (!conversation) return
   const title = contextMenu.chatTitle
   let md = `# ${title}\n\n> 导出时间: ${new Date().toLocaleString('zh-CN')}\n\n---\n\n`
-  for (const msg of chatStore.messages) {
+  for (const msg of conversation.messages) {
     const role = msg.role === 'user' ? '👤 用户' : '🤖 AI'
     const text = msg.content.filter(b => b.type === 'text').map(b => b.text || '').join('')
     md += `### ${role}\n\n${text}\n\n---\n\n`
@@ -378,6 +382,7 @@ async function exportChat() {
   a.download = `${title.replace(/[/\\?%*:|"<>]/g, '_')}.md`
   a.click()
   URL.revokeObjectURL(url)
+  contextMenu.visible = false
 }
 
 async function forkChat() {
@@ -389,7 +394,8 @@ async function forkChat() {
 }
 
 function deleteChatFromMenu() {
-  chatStore.deleteConversation(contextMenu.chatId)
+  void deleteChat(contextMenu.chatId)
+  contextMenu.visible = false
 }
 </script>
 
