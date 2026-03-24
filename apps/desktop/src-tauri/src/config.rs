@@ -3,6 +3,7 @@
 //! API Key 存储、应用配置读写、数据目录管理
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::fs;
 use std::path::PathBuf;
 use tauri::State;
@@ -239,11 +240,21 @@ pub fn cmd_write_json(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
     pub id: String,
-    pub role: String,        // "user" | "assistant"
+    pub role: String,        // "user" | "assistant" | "tool"
     pub content: Vec<ContentBlock>,
     pub created_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking_duration: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<PersistedToolCall>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_name: Option<String>,
 }
 
 /// 消息内容块
@@ -264,6 +275,22 @@ pub struct ContentBlock {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImageUrlBlock {
     pub url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersistedToolCall {
+    pub id: String,
+    pub name: String,
+    pub args: Value,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub collapsed: Option<bool>,
 }
 
 /// 完整对话（存储到文件）
@@ -333,11 +360,22 @@ impl ConfigManager {
                     if let Ok(content) = fs::read_to_string(&path) {
                         if let Ok(conv) = serde_json::from_str::<Conversation>(&content) {
                             // 提取最后一条消息作为预览
-                            let preview = conv.messages.last()
-                                .and_then(|m| {
+                            let preview = conv.messages.iter()
+                                .rev()
+                                .filter(|m| m.role != "tool")
+                                .find_map(|m| {
                                     m.content.iter()
                                         .find(|b| b.block_type == "text")
                                         .and_then(|b| b.text.clone())
+                                })
+                                .or_else(|| {
+                                    conv.messages.iter()
+                                        .rev()
+                                        .find_map(|m| {
+                                            m.content.iter()
+                                                .find(|b| b.block_type == "text")
+                                                .and_then(|b| b.text.clone())
+                                        })
                                 })
                                 .unwrap_or_default();
                             // 预览截断到 80 字符

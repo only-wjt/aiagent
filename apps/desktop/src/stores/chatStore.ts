@@ -19,14 +19,32 @@ export interface ContentBlock {
   image_url?: { url: string }
 }
 
+export interface PersistedToolCall {
+  id: string
+  name: string
+  args: Record<string, unknown>
+  status: 'pending' | 'running' | 'done' | 'error'
+  result?: string
+  error?: string
+  duration?: number
+  collapsed?: boolean
+}
+
+export type ChatMessageRole = 'user' | 'assistant' | 'tool'
+
 /** 对话消息 */
 export interface ChatMessage {
   id: string
-  role: 'user' | 'assistant'
+  role: ChatMessageRole
   content: ContentBlock[]
   createdAt: string
   usage?: string
   model?: string
+  thinking?: string
+  thinkingDuration?: number
+  toolCalls?: PersistedToolCall[]
+  toolCallId?: string
+  toolName?: string
 }
 
 /** 对话摘要（列表展示） */
@@ -82,6 +100,11 @@ export const useChatStore = defineStore('chat', () => {
   const currentConversation = computed(() =>
     conversations.value.find(c => c.id === currentConversationId.value)
   )
+
+  function normalizeChatMessageRole(role: string): ChatMessageRole {
+    if (role === 'assistant' || role === 'tool') return role
+    return 'user'
+  }
 
   // ==================== 初始化 ====================
 
@@ -166,6 +189,11 @@ export const useChatStore = defineStore('chat', () => {
           id: string; role: string;
           content: Array<{ type: string; text?: string; name?: string; id?: string; image_url?: { url: string } }>;
           created_at: string; usage?: string;
+          thinking?: string | null;
+          thinking_duration?: number | null;
+          tool_calls?: PersistedToolCall[] | null;
+          tool_call_id?: string | null;
+          tool_name?: string | null;
         }>;
       }
 
@@ -179,11 +207,16 @@ export const useChatStore = defineStore('chat', () => {
       }
       messages.value = conv.messages.map(m => ({
         id: m.id,
-        role: m.role as 'user' | 'assistant',
+        role: normalizeChatMessageRole(m.role),
         content: m.content.map(b => ({ ...b })),
         createdAt: m.created_at,
         usage: m.usage,
         model: (m as any).model,
+        thinking: m.thinking || undefined,
+        thinkingDuration: m.thinking_duration || undefined,
+        toolCalls: m.tool_calls || undefined,
+        toolCallId: m.tool_call_id || undefined,
+        toolName: m.tool_name || undefined,
       }))
     } catch (e) {
       console.error('[ChatStore] 加载对话失败:', e)
@@ -238,6 +271,11 @@ export const useChatStore = defineStore('chat', () => {
           })),
           created_at: m.createdAt,
           usage: m.usage || null,
+          thinking: m.thinking || null,
+          thinking_duration: m.thinkingDuration || null,
+          tool_calls: m.toolCalls || null,
+          tool_call_id: m.toolCallId || null,
+          tool_name: m.toolName || null,
         })),
       }
 
@@ -245,9 +283,10 @@ export const useChatStore = defineStore('chat', () => {
 
       // 更新列表中的摘要
       const idx = conversations.value.findIndex(c => c.id === currentConversationId.value)
-      const preview = messages.value.length > 0
-        ? (messages.value[messages.value.length - 1].content
-          .find(b => b.type === 'text')?.text || '').slice(0, 80)
+      const previewMessage = [...messages.value].reverse().find(m => m.role !== 'tool')
+        || messages.value[messages.value.length - 1]
+      const preview = previewMessage
+        ? (previewMessage.content.find(b => b.type === 'text')?.text || '').slice(0, 80)
         : ''
 
       const summary: ConversationSummary = {

@@ -66,7 +66,7 @@
         </template>
 
         <!-- 用户消息：右侧 -->
-        <template v-else>
+        <template v-else-if="msg.role === 'user'">
           <div class="message-content-wrap">
             <div class="message-header message-header-right">
               <span v-if="msg.usage" class="message-token-info">{{ msg.usage }}</span>
@@ -92,6 +92,24 @@
             </div>
           </div>
           <div class="message-avatar user-avatar"><User :size="20" stroke-width="1.5" /></div>
+        </template>
+
+        <!-- 工具消息：中性展示，避免误当作用户消息 -->
+        <template v-else>
+          <div class="message-avatar"><Bot :size="20" stroke-width="1.5" /></div>
+          <div class="message-content-wrap">
+            <div class="message-header">
+              <span class="message-sender">{{ msg.toolName || '工具输出' }}</span>
+              <span class="message-timestamp">{{ formatTime(msg.createdAt) }}</span>
+            </div>
+            <div class="message-bubble bubble-assistant">
+              <div class="message-body">
+                <template v-for="(block, bi) in msg.content" :key="bi">
+                  <div v-if="block.type === 'text'" v-html="renderMarkdown(block.text || '')"></div>
+                </template>
+              </div>
+            </div>
+          </div>
         </template>
       </div>
 
@@ -409,6 +427,10 @@ const hasApiKey = computed(() => {
   return !!selectedProvider.value?.apiKey
 })
 
+function isUserOrAssistantMessage(msg: ChatMessage): msg is ChatMessage & { role: 'user' | 'assistant' } {
+  return msg.role === 'user' || msg.role === 'assistant'
+}
+
 // 获取消息文本
 function getMessageText(msg: ChatMessage): string {
   return msg.content
@@ -426,7 +448,7 @@ type AnthropicContentPart =
   | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
 
 type SidecarHistoryMessage = {
-  role: ChatMessage['role']
+  role: 'user' | 'assistant'
   content: string | AnthropicContentPart[]
 }
 
@@ -511,31 +533,40 @@ function buildResponsesMessageContent(blocks: ChatMessage['content']): string | 
 }
 
 function buildOpenAIHistoryMessages() {
-  return chatStore.messages.map(m => ({
+  return chatStore.messages
+    .filter(isUserOrAssistantMessage)
+    .map(m => ({
     role: m.role,
     content: buildOpenAIMessageContent(m.content),
-  }))
+    }))
 }
 
 function buildAnthropicHistoryMessages() {
-  return chatStore.messages.map(m => ({
+  return chatStore.messages
+    .filter(isUserOrAssistantMessage)
+    .map(m => ({
     role: m.role,
     content: buildAnthropicMessageContent(m.content),
-  }))
+    }))
 }
 
 function buildSidecarHistoryMessages(): SidecarHistoryMessage[] {
-  return chatStore.messages.slice(0, -1).map(m => ({
+  return chatStore.messages
+    .slice(0, -1)
+    .filter(isUserOrAssistantMessage)
+    .map(m => ({
     role: m.role,
     content: buildAnthropicMessageContent(m.content),
-  }))
+    }))
 }
 
 function buildResponsesInputMessages() {
-  return chatStore.messages.map(m => ({
+  return chatStore.messages
+    .filter(isUserOrAssistantMessage)
+    .map(m => ({
     role: m.role,
     content: buildResponsesMessageContent(m.content),
-  }))
+    }))
 }
 
 function buildCurrentSidecarMessageContent() {

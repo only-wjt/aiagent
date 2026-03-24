@@ -244,7 +244,7 @@ import { ref, computed, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAgentStore, TOOL_META, type PermissionMode } from '../stores/agentStore'
 import { renderMarkdown } from '../utils/markdown'
-import { useChatStore } from '../stores/chatStore'
+import { useChatStore, type PersistedToolCall } from '../stores/chatStore'
 import { useConfigStore } from '../stores/configStore'
 import { useWorkspaceStore } from '../stores/workspaceStore'
 import {
@@ -361,15 +361,21 @@ function syncAgentMessagesToChatStore() {
 
   chatStore.currentModel = agentStore.currentModel
   chatStore.currentProviderId = agentStore.currentProviderId
-  chatStore.messages = agentStore.messages
-    .filter((m): m is typeof m & { role: 'user' | 'assistant' } => m.role === 'user' || m.role === 'assistant')
-    .map(m => ({
-      id: m.id,
-      role: m.role,
-      content: [{ type: 'text', text: m.content }],
-      createdAt: m.createdAt,
-      model: m.role === 'assistant' ? agentStore.currentModel : undefined,
-    }))
+  chatStore.messages = agentStore.messages.map(m => ({
+    id: m.id,
+    role: m.role,
+    content: m.content ? [{ type: 'text', text: m.content }] : [],
+    createdAt: m.createdAt,
+    model: m.role === 'assistant' ? agentStore.currentModel : undefined,
+    thinking: m.thinking,
+    thinkingDuration: m.thinkingDuration,
+    toolCalls: m.toolCalls?.map(tc => ({
+      ...tc,
+      args: { ...tc.args },
+    })) as PersistedToolCall[] | undefined,
+    toolCallId: m.toolCallId,
+    toolName: m.toolName,
+  }))
   void chatStore.saveCurrentConversation()
 }
 
@@ -412,6 +418,14 @@ async function syncAgentSessionFromRoute() {
         .map(block => block.text || '')
         .join(''),
       createdAt: m.createdAt,
+      thinking: m.thinking,
+      thinkingDuration: m.thinkingDuration,
+      toolCalls: m.toolCalls?.map(tc => ({
+        ...tc,
+        args: { ...tc.args },
+      })),
+      toolCallId: m.toolCallId,
+      toolName: m.toolName,
     })))
 
     if (chatStore.currentModel) {
