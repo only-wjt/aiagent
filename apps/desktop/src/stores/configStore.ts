@@ -364,6 +364,13 @@ export const useConfigStore = defineStore('config', () => {
     return result
   }
 
+  /** 根据模型 ID 找到所属供应商 */
+  function findProviderByModel (modelId: string): ProviderView | undefined {
+    const model = allEnabledModels().find(m => m.id === modelId)
+    if (!model) return undefined
+    return providers.value.find(p => p.id === model.providerId)
+  }
+
   return {
     providers,
     appConfig,
@@ -381,5 +388,6 @@ export const useConfigStore = defineStore('config', () => {
     toggleModel,
     removeModel,
     allEnabledModels,
+    findProviderByModel,
   }
 })

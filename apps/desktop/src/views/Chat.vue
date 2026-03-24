@@ -285,6 +285,9 @@ function rejectPendingTool() {
 const availableModels = computed(() => {
   return configStore.allEnabledModels()
 })
+const selectedProvider = computed(() => {
+  return configStore.findProviderByModel(currentModel.value) || configStore.defaultProvider
+})
 const activeSidecarSessionId = computed(() => chatStore.currentConversationId || 'default')
 const activeWorkspacePath = computed(() => configStore.appConfig.defaultWorkspacePath || '~')
 
@@ -373,7 +376,7 @@ function newChat() {
 
 // 检查是否有可用的 API Key
 const hasApiKey = computed(() => {
-  return !!configStore.defaultProvider?.apiKey
+  return !!selectedProvider.value?.apiKey
 })
 
 // 获取消息文本
@@ -451,7 +454,7 @@ async function sendMessage() {
   if ((!text && pendingImages.value.length === 0) || isStreaming.value) return
 
   // 获取 API Key
-  const provider = configStore.defaultProvider
+  const provider = selectedProvider.value
 
   // 如果还没有当前对话，创建一个
   if (!chatStore.currentConversationId) {
@@ -875,8 +878,7 @@ async function streamAuto(prompt: string, apiKey: string, baseUrl?: string, endp
   try {
     await ensureActiveSidecarSession()
     const sidecarUrl = getBaseUrl()
-    const healthCheck = await fetch(`${sidecarUrl}/health`, { signal: AbortSignal.timeout(1000) }).catch(() => null)
-    if (healthCheck?.ok) {
+    if (await waitForSidecarReady(sidecarUrl)) {
       // Sidecar 可用，使用 Sidecar 中转
       await streamFromSidecar(prompt, apiKey, baseUrl, endpointType)
       return
@@ -897,6 +899,24 @@ async function streamAuto(prompt: string, apiKey: string, baseUrl?: string, endp
     // 其他类型尝试 OpenAI 兼容格式
     await streamFromOpenAI(prompt, apiKey, url)
   }
+}
+
+async function waitForSidecarReady(sidecarUrl: string, retries: number = 8, delayMs: number = 250): Promise<boolean> {
+  for (let attempt = 0; attempt < retries; attempt++) {
+    const healthCheck = await fetch(`${sidecarUrl}/health`, {
+      signal: AbortSignal.timeout(1000),
+    }).catch(() => null)
+
+    if (healthCheck?.ok) {
+      return true
+    }
+
+    if (attempt < retries - 1) {
+      await new Promise(resolve => setTimeout(resolve, delayMs))
+    }
+  }
+
+  return false
 }
 
 /** 模拟流式输出（无 API Key 时） */
@@ -990,7 +1010,7 @@ async function regenerateMessage(idx: number) {
   scrollToBottom()
 
   // 直接发起流式请求，不再添加用户消息
-  const provider = configStore.defaultProvider
+  const provider = selectedProvider.value
   isStreaming.value = true
   streamingText.value = ''
   streamingUsage.value = ''

@@ -184,6 +184,24 @@ export const useAgentStore = defineStore('agent', () => {
   /** 用户确认/拒绝的Promise resolve */
   let confirmResolve: ((approved: boolean) => void) | null = null
 
+  async function waitForSidecarReady (baseUrl: string, retries: number = 8, delayMs: number = 250): Promise<boolean> {
+    for (let attempt = 0; attempt < retries; attempt++) {
+      const healthCheck = await fetch(`${baseUrl}/health`, {
+        signal: AbortSignal.timeout(1000),
+      }).catch(() => null)
+
+      if (healthCheck?.ok) {
+        return true
+      }
+
+      if (attempt < retries - 1) {
+        await new Promise(resolve => setTimeout(resolve, delayMs))
+      }
+    }
+
+    return false
+  }
+
   /** 构建分层 System Prompt */
   function buildSystemPrompt(): string {
     const parts: string[] = []
@@ -307,11 +325,7 @@ export const useAgentStore = defineStore('agent', () => {
     const configStore = useConfigStore()
 
     // 根据当前模型找到所属 provider
-    const allModels = configStore.allEnabledModels()
-    const modelInfo = allModels.find(m => m.id === currentModel.value)
-    const provider = modelInfo
-      ? configStore.providers.find(p => p.id === modelInfo.providerId)
-      : configStore.defaultProvider
+    const provider = configStore.findProviderByModel(currentModel.value) || configStore.defaultProvider
     if (!provider || !provider.apiKey) {
       messages.value.push({
         id: crypto.randomUUID(),
@@ -409,6 +423,10 @@ export const useAgentStore = defineStore('agent', () => {
               }) as Promise<{ port: number }>).then((sidecar) => sidecar.port).catch(() => null)
             }
             const proxyBase = port ? `http://localhost:${port}` : 'http://localhost:3700'
+            const sidecarReady = await waitForSidecarReady(proxyBase)
+            if (!sidecarReady) {
+              throw new Error('Gemini Sidecar 未就绪，请稍后重试')
+            }
             url = `${proxyBase}/proxy/v1/messages`
             reqHeaders['x-target-provider'] = 'gemini'
             reqHeaders['x-target-baseurl'] = baseUrl
