@@ -201,7 +201,7 @@
                     </div>
                   </div>
                   <label class="toggle-switch">
-                    <input type="checkbox" :checked="agentStore.enabledTools[key as string] !== false" @change="agentStore.enabledTools[key as string] = ($event.target as HTMLInputElement).checked" />
+                    <input type="checkbox" :checked="agentStore.enabledTools[key as string] !== false" @change="agentStore.setEnabledTool(key as string, ($event.target as HTMLInputElement).checked)" />
                     <span class="toggle-slider"></span>
                   </label>
                 </div>
@@ -359,8 +359,8 @@ function syncAgentMessagesToChatStore() {
   const sessionId = route.params.sessionId as string | undefined
   if (!sessionId || chatStore.currentConversationId !== sessionId) return
 
+  syncAgentSessionSettingsToChatStore(false)
   chatStore.currentModel = agentStore.currentModel
-  chatStore.currentProviderId = agentStore.currentProviderId
   chatStore.messages = agentStore.messages.map(m => ({
     id: m.id,
     role: m.role,
@@ -377,6 +377,21 @@ function syncAgentMessagesToChatStore() {
     toolName: m.toolName,
   }))
   void chatStore.saveCurrentConversation()
+}
+
+function syncAgentSessionSettingsToChatStore(shouldSave: boolean = true) {
+  if (hydratingPersistedSession.value) return
+  const sessionId = route.params.sessionId as string | undefined
+  if (!sessionId || chatStore.currentConversationId !== sessionId) return
+
+  chatStore.currentModel = agentStore.currentModel
+  chatStore.currentProviderId = agentStore.currentProviderId
+  chatStore.currentAgentMode = agentStore.permissionMode
+  chatStore.currentEnabledTools = { ...agentStore.enabledTools }
+
+  if (shouldSave) {
+    void chatStore.saveCurrentConversation()
+  }
 }
 
 watch(() => agentStore.isProcessing, (isProcessing, wasProcessing) => {
@@ -428,6 +443,9 @@ async function syncAgentSessionFromRoute() {
       toolName: m.toolName,
     })))
 
+    agentStore.setPermissionMode(chatStore.currentAgentMode || 'autonomous')
+    agentStore.setEnabledTools(chatStore.currentEnabledTools)
+
     if (chatStore.currentModel) {
       agentStore.setModel(chatStore.currentModel, chatStore.currentProviderId)
     } else {
@@ -444,6 +462,22 @@ async function syncAgentSessionFromRoute() {
 watch(() => route.params.sessionId, () => {
   void syncAgentSessionFromRoute()
 }, { immediate: true })
+
+watch(() => agentStore.currentModel, () => {
+  syncAgentSessionSettingsToChatStore()
+})
+
+watch(() => agentStore.currentProviderId, () => {
+  syncAgentSessionSettingsToChatStore()
+})
+
+watch(() => agentStore.permissionMode, () => {
+  syncAgentSessionSettingsToChatStore()
+})
+
+watch(() => agentStore.enabledTools, () => {
+  syncAgentSessionSettingsToChatStore()
+}, { deep: true })
 </script>
 
 <style scoped>

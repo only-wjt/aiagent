@@ -31,6 +31,7 @@ export interface PersistedToolCall {
 }
 
 export type ChatMessageRole = 'user' | 'assistant' | 'tool'
+export type AgentSessionMode = 'action' | 'plan' | 'autonomous'
 
 /** 对话消息 */
 export interface ChatMessage {
@@ -68,6 +69,8 @@ export interface Conversation {
   model: string
   providerId?: string
   workspaceId?: string
+  agentMode?: AgentSessionMode
+  enabledTools?: Record<string, boolean>
   createdAt: string
   updatedAt: string
   messages: ChatMessage[]
@@ -90,6 +93,12 @@ export const useChatStore = defineStore('chat', () => {
 
   /** 当前对话供应商 */
   const currentProviderId = ref<string | null>(null)
+
+  /** 当前 Agent 会话模式（仅 Agent 会话使用） */
+  const currentAgentMode = ref<AgentSessionMode | null>(null)
+
+  /** 当前 Agent 会话工具开关（仅 Agent 会话使用） */
+  const currentEnabledTools = ref<Record<string, boolean> | null>(null)
 
   /** 是否已加载 */
   const isLoaded = ref(false)
@@ -157,6 +166,8 @@ export const useChatStore = defineStore('chat', () => {
     currentConversationId.value = id
     currentModel.value = m
     currentProviderId.value = p || null
+    currentAgentMode.value = null
+    currentEnabledTools.value = null
     messages.value = []
 
     // 立即添加到列表顶部
@@ -184,6 +195,8 @@ export const useChatStore = defineStore('chat', () => {
         id: string; title: string; model: string;
         provider_id?: string | null;
         workspace_id?: string | null;
+        agent_mode?: AgentSessionMode | null;
+        enabled_tools?: Record<string, boolean> | null;
         created_at: string; updated_at: string;
         messages: Array<{
           id: string; role: string;
@@ -200,6 +213,8 @@ export const useChatStore = defineStore('chat', () => {
       currentConversationId.value = conv.id
       currentModel.value = conv.model
       currentProviderId.value = conv.provider_id || null
+      currentAgentMode.value = conv.agent_mode || null
+      currentEnabledTools.value = conv.enabled_tools || null
       const summary = conversations.value.find(c => c.id === conv.id)
       if (summary) {
         summary.workspaceId = conv.workspace_id || undefined
@@ -257,6 +272,8 @@ export const useChatStore = defineStore('chat', () => {
         model: currentModel.value,
         provider_id: currentProviderId.value,
         workspace_id: currentConversation.value?.workspaceId || null,
+        agent_mode: currentAgentMode.value,
+        enabled_tools: currentEnabledTools.value,
         created_at: currentConversation.value?.createdAt || now,
         updated_at: now,
         messages: messages.value.map(m => ({
@@ -323,6 +340,8 @@ export const useChatStore = defineStore('chat', () => {
       if (currentConversationId.value === id) {
         currentConversationId.value = null
         currentProviderId.value = null
+        currentAgentMode.value = null
+        currentEnabledTools.value = null
         messages.value = []
       }
     } catch (e) {
@@ -389,6 +408,8 @@ export const useChatStore = defineStore('chat', () => {
     messages,
     currentModel,
     currentProviderId,
+    currentAgentMode,
+    currentEnabledTools,
     isLoaded,
     // 计算属性
     currentConversation,

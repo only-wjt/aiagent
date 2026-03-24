@@ -162,6 +162,16 @@ export const TOOL_META: Record<string, { icon: string; label: string }> = {
 /** 权限模式类型 */
 export type PermissionMode = 'action' | 'plan' | 'autonomous'
 
+const DEFAULT_ENABLED_TOOLS: Record<string, boolean> = {
+  bash: true,
+  read_file: true,
+  write_file: true,
+  edit_file: true,
+  list_dir: true,
+  glob: true,
+  grep: true,
+}
+
 export const useAgentStore = defineStore('agent', () => {
   // ==================== 状态 ====================
   const messages = ref<AgentMessage[]>([])
@@ -176,10 +186,7 @@ export const useAgentStore = defineStore('agent', () => {
   /** 流式更新计数器（每次变化触发 UI 滚动） */
   const updateTick = ref(0)
   /** 工具启用状态 */
-  const enabledTools = ref<Record<string, boolean>>({
-    bash: true, read_file: true, write_file: true, edit_file: true,
-    list_dir: true, glob: true, grep: true,
-  })
+  const enabledTools = ref<Record<string, boolean>>({ ...DEFAULT_ENABLED_TOOLS })
   /** 待确认的工具调用 */
   const pendingToolCall = ref<{ toolCall: ToolCall; messageId: string } | null>(null)
   /** 用户确认/拒绝的Promise resolve */
@@ -753,6 +760,22 @@ export const useAgentStore = defineStore('agent', () => {
     permissionMode.value = mode
   }
 
+  /** 设置单个工具开关 */
+  function setEnabledTool(name: string, enabled: boolean) {
+    enabledTools.value = {
+      ...enabledTools.value,
+      [name]: enabled,
+    }
+  }
+
+  /** 用会话配置覆盖工具开关，未提供的项回落到默认值 */
+  function setEnabledTools(nextTools?: Record<string, boolean> | null) {
+    enabledTools.value = {
+      ...DEFAULT_ENABLED_TOOLS,
+      ...(nextTools || {}),
+    }
+  }
+
   /** 获取启用的工具列表（过滤禁用的） */
   function getEnabledAgentTools() {
     return AGENT_TOOLS.filter(t => enabledTools.value[t.function.name] !== false)
@@ -785,6 +808,8 @@ export const useAgentStore = defineStore('agent', () => {
     setWorkspace,
     setModel,
     setPermissionMode,
+    setEnabledTool,
+    setEnabledTools,
     approveToolCall,
     rejectToolCall,
     AGENT_TOOLS,
