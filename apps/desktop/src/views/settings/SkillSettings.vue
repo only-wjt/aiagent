@@ -22,7 +22,7 @@
             <div class="skill-header">
               <span class="skill-name">{{ skill.name }}</span>
               <label class="toggle" :title="skill.enabled ? '点击禁用' : '点击启用'">
-                <input type="checkbox" v-model="skill.enabled" @change="onToggle(skill)" />
+                <input type="checkbox" :checked="skill.enabled" @change="onToggle(skill.id, ($event.target as HTMLInputElement).checked)" />
                 <span class="slider"></span>
               </label>
             </div>
@@ -116,12 +116,14 @@ const newSkill = reactive({ name: '', prompt: '' })
 const deleteDialog = reactive({ visible: false, skillId: '', skillName: '' })
 const showToast = inject<(message: string, type?: 'success' | 'error' | 'info') => void>('showToast', () => {})
 
-async function onToggle(skill: { id: string; enabled: boolean }) {
+async function onToggle(id: string, enabled: boolean) {
+  const skill = builtinSkills.find(item => item.id === id)
+  if (!skill) return
   try {
-    await skillStore.toggleBuiltin(skill.id)
-    showToast(skill.enabled ? '技能已启用' : '技能已禁用', 'success')
+    await skillStore.toggleBuiltin(id)
+    showToast(enabled ? '技能已启用' : '技能已禁用', 'success')
   } catch (error) {
-    skill.enabled = !skill.enabled
+    skill.enabled = !enabled
     console.error('[SkillSettings] 切换内置技能失败:', error)
     showToast('技能状态保存失败', 'error')
   }
