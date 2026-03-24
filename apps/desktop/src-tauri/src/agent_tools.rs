@@ -77,9 +77,7 @@ fn resolve_path_within_workspace(workspace: &Path, input: &str) -> Result<PathBu
 
 /// 执行 Bash 命令
 fn tool_bash(args: &serde_json::Value, workspace: &Path) -> ToolResult {
-    let command = args.get("command")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
 
     if command.is_empty() {
         return ToolResult {
@@ -90,7 +88,8 @@ fn tool_bash(args: &serde_json::Value, workspace: &Path) -> ToolResult {
     }
 
     // 限制超时时间（默认 30 秒，上限 300 秒）
-    let timeout = args.get("timeout")
+    let timeout = args
+        .get("timeout")
         .and_then(|v| v.as_u64())
         .unwrap_or(30)
         .min(300);
@@ -109,11 +108,23 @@ fn tool_bash(args: &serde_json::Value, workspace: &Path) -> ToolResult {
             match child.wait_timeout(timeout_duration) {
                 Ok(Some(status)) => {
                     // 进程正常退出
-                    let stdout = child.stdout.take()
-                        .map(|mut s| { let mut buf = String::new(); std::io::Read::read_to_string(&mut s, &mut buf).ok(); buf })
+                    let stdout = child
+                        .stdout
+                        .take()
+                        .map(|mut s| {
+                            let mut buf = String::new();
+                            std::io::Read::read_to_string(&mut s, &mut buf).ok();
+                            buf
+                        })
                         .unwrap_or_default();
-                    let stderr = child.stderr.take()
-                        .map(|mut s| { let mut buf = String::new(); std::io::Read::read_to_string(&mut s, &mut buf).ok(); buf })
+                    let stderr = child
+                        .stderr
+                        .take()
+                        .map(|mut s| {
+                            let mut buf = String::new();
+                            std::io::Read::read_to_string(&mut s, &mut buf).ok();
+                            buf
+                        })
                         .unwrap_or_default();
                     let combined = if stderr.is_empty() {
                         stdout
@@ -121,14 +132,22 @@ fn tool_bash(args: &serde_json::Value, workspace: &Path) -> ToolResult {
                         format!("{}\n[stderr]\n{}", stdout, stderr)
                     };
                     let truncated = if combined.len() > 50000 {
-                        format!("{}...\n[输出已截断，共 {} 字节]", &combined[..50000], combined.len())
+                        format!(
+                            "{}...\n[输出已截断，共 {} 字节]",
+                            &combined[..50000],
+                            combined.len()
+                        )
                     } else {
                         combined
                     };
                     ToolResult {
                         success: status.success(),
                         output: truncated,
-                        error: if status.success() { None } else { Some(format!("退出码: {}", status.code().unwrap_or(-1))) },
+                        error: if status.success() {
+                            None
+                        } else {
+                            Some(format!("退出码: {}", status.code().unwrap_or(-1)))
+                        },
                     }
                 }
                 Ok(None) => {
@@ -158,9 +177,7 @@ fn tool_bash(args: &serde_json::Value, workspace: &Path) -> ToolResult {
 
 /// 读取文件
 fn tool_read_file(args: &serde_json::Value, workspace: &Path) -> ToolResult {
-    let file_path = args.get("path")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let file_path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
 
     if file_path.is_empty() {
         return ToolResult {
@@ -183,7 +200,11 @@ fn tool_read_file(args: &serde_json::Value, workspace: &Path) -> ToolResult {
     match std::fs::read_to_string(&full_path) {
         Ok(content) => {
             let truncated = if content.len() > 100000 {
-                format!("{}...\n[文件已截断，共 {} 字节]", &content[..100000], content.len())
+                format!(
+                    "{}...\n[文件已截断，共 {} 字节]",
+                    &content[..100000],
+                    content.len()
+                )
             } else {
                 content
             };
@@ -203,12 +224,8 @@ fn tool_read_file(args: &serde_json::Value, workspace: &Path) -> ToolResult {
 
 /// 写入文件
 fn tool_write_file(args: &serde_json::Value, workspace: &Path) -> ToolResult {
-    let file_path = args.get("path")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let content = args.get("content")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let file_path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+    let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
 
     if file_path.is_empty() {
         return ToolResult {
@@ -249,15 +266,9 @@ fn tool_write_file(args: &serde_json::Value, workspace: &Path) -> ToolResult {
 
 /// 编辑文件（查找替换）
 fn tool_edit_file(args: &serde_json::Value, workspace: &Path) -> ToolResult {
-    let file_path = args.get("path")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let old_text = args.get("old_text")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let new_text = args.get("new_text")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let file_path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+    let old_text = args.get("old_text").and_then(|v| v.as_str()).unwrap_or("");
+    let new_text = args.get("new_text").and_then(|v| v.as_str()).unwrap_or("");
 
     if file_path.is_empty() || old_text.is_empty() {
         return ToolResult {
@@ -310,9 +321,7 @@ fn tool_edit_file(args: &serde_json::Value, workspace: &Path) -> ToolResult {
 
 /// 列出目录
 fn tool_list_dir(args: &serde_json::Value, workspace: &Path) -> ToolResult {
-    let dir_path = args.get("path")
-        .and_then(|v| v.as_str())
-        .unwrap_or(".");
+    let dir_path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
 
     let full_path = match resolve_path_within_workspace(workspace, dir_path) {
         Ok(path) => path,
@@ -354,9 +363,7 @@ fn tool_list_dir(args: &serde_json::Value, workspace: &Path) -> ToolResult {
 
 /// Glob 文件匹配
 fn tool_glob(args: &serde_json::Value, workspace: &Path) -> ToolResult {
-    let pattern = args.get("pattern")
-        .and_then(|v| v.as_str())
-        .unwrap_or("*");
+    let pattern = args.get("pattern").and_then(|v| v.as_str()).unwrap_or("*");
 
     // 直接传参给 find，避免 shell 注入
     match Command::new("find")
@@ -375,7 +382,11 @@ fn tool_glob(args: &serde_json::Value, workspace: &Path) -> ToolResult {
             let limited: String = stdout.lines().take(100).collect::<Vec<_>>().join("\n");
             ToolResult {
                 success: true,
-                output: if limited.is_empty() { "未找到匹配文件".into() } else { limited },
+                output: if limited.is_empty() {
+                    "未找到匹配文件".into()
+                } else {
+                    limited
+                },
                 error: None,
             }
         }
@@ -389,12 +400,8 @@ fn tool_glob(args: &serde_json::Value, workspace: &Path) -> ToolResult {
 
 /// Grep 搜索
 fn tool_grep(args: &serde_json::Value, workspace: &Path) -> ToolResult {
-    let pattern = args.get("pattern")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let file_pattern = args.get("include")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let pattern = args.get("pattern").and_then(|v| v.as_str()).unwrap_or("");
+    let file_pattern = args.get("include").and_then(|v| v.as_str()).unwrap_or("");
 
     if pattern.is_empty() {
         return ToolResult {
@@ -421,7 +428,11 @@ fn tool_grep(args: &serde_json::Value, workspace: &Path) -> ToolResult {
             let limited: String = stdout.lines().take(50).collect::<Vec<_>>().join("\n");
             ToolResult {
                 success: true,
-                output: if limited.is_empty() { "未找到匹配内容".into() } else { limited },
+                output: if limited.is_empty() {
+                    "未找到匹配内容".into()
+                } else {
+                    limited
+                },
                 error: None,
             }
         }
@@ -442,9 +453,7 @@ pub fn execute_tool(request: &ToolRequest) -> ToolResult {
         let _ = std::fs::create_dir_all(&workspace);
     }
 
-    let workspace = workspace
-        .canonicalize()
-        .unwrap_or(workspace);
+    let workspace = workspace.canonicalize().unwrap_or(workspace);
 
     match request.name.as_str() {
         "bash" | "Bash" => tool_bash(&request.args, &workspace),
@@ -465,6 +474,10 @@ pub fn execute_tool(request: &ToolRequest) -> ToolResult {
 /// Tauri 命令：执行 Agent 工具
 #[tauri::command]
 pub fn cmd_execute_tool(name: String, args: serde_json::Value, workspace: String) -> ToolResult {
-    let request = ToolRequest { name, args, workspace };
+    let request = ToolRequest {
+        name,
+        args,
+        workspace,
+    };
     execute_tool(&request)
 }

@@ -54,15 +54,21 @@ impl McpInner {
 
         let mut line = serde_json::to_string(&request).map_err(|e| e.to_string())?;
         line.push('\n');
-        self.stdin.write_all(line.as_bytes()).map_err(|e| e.to_string())?;
+        self.stdin
+            .write_all(line.as_bytes())
+            .map_err(|e| e.to_string())?;
         self.stdin.flush().map_err(|e| e.to_string())?;
 
         // 读取响应行（跳过非 JSON 行）
         loop {
             let mut resp_line = String::new();
-            self.reader.read_line(&mut resp_line).map_err(|e| e.to_string())?;
+            self.reader
+                .read_line(&mut resp_line)
+                .map_err(|e| e.to_string())?;
             let resp_line = resp_line.trim();
-            if resp_line.is_empty() { continue; }
+            if resp_line.is_empty() {
+                continue;
+            }
             if let Ok(v) = serde_json::from_str::<Value>(resp_line) {
                 // 找到对应 id 的响应
                 if v.get("id").and_then(|i| i.as_u64()) == Some(id) {
@@ -90,7 +96,12 @@ impl McpRegistry {
     }
 
     /// 启动并连接 MCP 服务器，返回工具列表
-    pub fn connect(&self, tool_id: &str, command: &str, env: HashMap<String, String>) -> Result<Vec<McpToolDef>, String> {
+    pub fn connect(
+        &self,
+        tool_id: &str,
+        command: &str,
+        env: HashMap<String, String>,
+    ) -> Result<Vec<McpToolDef>, String> {
         // 解析命令
         let parts: Vec<&str> = command.split_whitespace().collect();
         if parts.is_empty() {
@@ -122,11 +133,14 @@ impl McpRegistry {
         };
 
         // MCP 初始化握手
-        let _init_result = inner.rpc("initialize", json!({
-            "protocolVersion": "2024-11-05",
-            "capabilities": {},
-            "clientInfo": { "name": "aiagent", "version": "1.0.0" },
-        }))?;
+        let _init_result = inner.rpc(
+            "initialize",
+            json!({
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": { "name": "aiagent", "version": "1.0.0" },
+            }),
+        )?;
 
         // 发送 initialized 通知（无需响应）
         let notif = json!({
@@ -135,7 +149,10 @@ impl McpRegistry {
         });
         let mut notif_line = serde_json::to_string(&notif).map_err(|e| e.to_string())?;
         notif_line.push('\n');
-        inner.stdin.write_all(notif_line.as_bytes()).map_err(|e| e.to_string())?;
+        inner
+            .stdin
+            .write_all(notif_line.as_bytes())
+            .map_err(|e| e.to_string())?;
         inner.stdin.flush().map_err(|e| e.to_string())?;
 
         // 获取工具列表
@@ -143,12 +160,24 @@ impl McpRegistry {
         let tools: Vec<McpToolDef> = tools_result
             .get("tools")
             .and_then(|t| t.as_array())
-            .map(|arr| arr.iter().filter_map(|t| {
-                let name = t.get("name")?.as_str()?.to_string();
-                let description = t.get("description").and_then(|d| d.as_str()).unwrap_or("").to_string();
-                let input_schema = t.get("inputSchema").cloned().unwrap_or(json!({}));
-                Some(McpToolDef { name, description, input_schema })
-            }).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|t| {
+                        let name = t.get("name")?.as_str()?.to_string();
+                        let description = t
+                            .get("description")
+                            .and_then(|d| d.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let input_schema = t.get("inputSchema").cloned().unwrap_or(json!({}));
+                        Some(McpToolDef {
+                            name,
+                            description,
+                            input_schema,
+                        })
+                    })
+                    .collect()
+            })
             .unwrap_or_default();
 
         let handle = McpHandle {
@@ -157,7 +186,10 @@ impl McpRegistry {
             inner: Arc::new(Mutex::new(inner)),
         };
 
-        self.handles.lock().unwrap().insert(tool_id.to_string(), handle);
+        self.handles
+            .lock()
+            .unwrap()
+            .insert(tool_id.to_string(), handle);
         Ok(tools)
     }
 
@@ -167,9 +199,16 @@ impl McpRegistry {
     }
 
     /// 调用 MCP 工具
-    pub fn call_tool(&self, tool_id: &str, tool_name: &str, arguments: Value) -> Result<String, String> {
+    pub fn call_tool(
+        &self,
+        tool_id: &str,
+        tool_name: &str,
+        arguments: Value,
+    ) -> Result<String, String> {
         let handles = self.handles.lock().unwrap();
-        let handle = handles.get(tool_id).ok_or(format!("MCP 服务器 '{}' 未连接", tool_id))?;
+        let handle = handles
+            .get(tool_id)
+            .ok_or(format!("MCP 服务器 '{}' 未连接", tool_id))?;
         let result = handle.inner.lock().unwrap().rpc(
             "tools/call",
             json!({ "name": tool_name, "arguments": arguments }),
@@ -216,10 +255,7 @@ pub fn cmd_mcp_connect(
 
 /// 断开 MCP 服务器
 #[tauri::command]
-pub fn cmd_mcp_disconnect(
-    tool_id: String,
-    state: tauri::State<McpRegistry>,
-) {
+pub fn cmd_mcp_disconnect(tool_id: String, state: tauri::State<McpRegistry>) {
     state.disconnect(&tool_id);
 }
 
@@ -232,15 +268,21 @@ pub fn cmd_mcp_call_tool(
     state: tauri::State<McpRegistry>,
 ) -> McpCallResult {
     match state.call_tool(&tool_id, &tool_name, arguments) {
-        Ok(output) => McpCallResult { success: true, output, error: None },
-        Err(e) => McpCallResult { success: false, output: String::new(), error: Some(e) },
+        Ok(output) => McpCallResult {
+            success: true,
+            output,
+            error: None,
+        },
+        Err(e) => McpCallResult {
+            success: false,
+            output: String::new(),
+            error: Some(e),
+        },
     }
 }
 
 /// 获取所有已连接的 MCP 服务器工具
 #[tauri::command]
-pub fn cmd_mcp_list_tools(
-    state: tauri::State<McpRegistry>,
-) -> Vec<(String, Vec<McpToolDef>)> {
+pub fn cmd_mcp_list_tools(state: tauri::State<McpRegistry>) -> Vec<(String, Vec<McpToolDef>)> {
     state.list_connected()
 }

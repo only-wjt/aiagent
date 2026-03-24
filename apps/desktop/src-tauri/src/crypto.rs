@@ -2,11 +2,11 @@
 //!
 //! 使用 AES-256-GCM 加密 API Key，密钥从机器标识符派生
 
+use base64::{engine::general_purpose::STANDARD, Engine};
 use ring::aead::{self, Aad, LessSafeKey, Nonce, UnboundKey};
 use ring::pbkdf2;
 use ring::rand::{SecureRandom, SystemRandom};
 use std::num::NonZeroU32;
-use base64::{engine::general_purpose::STANDARD, Engine};
 
 const PBKDF2_ITERATIONS: u32 = 100_000;
 const NONCE_LEN: usize = 12;
@@ -137,8 +137,7 @@ pub fn decrypt_api_key(encrypted: &str) -> Result<String, String> {
     key.open_in_place(nonce, Aad::empty(), &mut plaintext)
         .map_err(|_| "Decryption failed - invalid key or corrupted data".to_string())?;
 
-    String::from_utf8(plaintext)
-        .map_err(|_| "Decrypted data is not valid UTF-8".to_string())
+    String::from_utf8(plaintext).map_err(|_| "Decrypted data is not valid UTF-8".to_string())
 }
 
 #[cfg(test)]

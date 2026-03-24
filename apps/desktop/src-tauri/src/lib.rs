@@ -2,22 +2,22 @@
 //!
 //! 模块注册和应用初始化
 
-mod sidecar;
-mod sse_proxy;
-mod config;
 mod agent_tools;
+mod config;
 mod crypto;
 mod mcp;
+mod sidecar;
+mod sse_proxy;
 
-use sidecar::SidecarManager;
-use sse_proxy::SseProxyState;
 use config::ConfigManager;
 use mcp::McpRegistry;
-use tauri::Manager;
-use tauri::tray::{TrayIconBuilder, MouseButton, MouseButtonState, TrayIconEvent};
-use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use serde::{Deserialize, Serialize};
+use sidecar::SidecarManager;
+use sse_proxy::SseProxyState;
 use std::fs;
+use tauri::menu::{MenuBuilder, MenuItemBuilder};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::Manager;
 
 /// 窗口状态（位置/大小）
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -145,7 +145,8 @@ pub fn run() {
                             button: MouseButton::Left,
                             button_state: MouseButtonState::Up,
                             ..
-                        } = event {
+                        } = event
+                        {
                             if let Some(w) = tray.app_handle().get_webview_window("main") {
                                 let _ = w.show();
                                 let _ = w.set_focus();
@@ -158,7 +159,8 @@ pub fn run() {
                 if let Some(state) = load_window_state(&data_dir_setup) {
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.set_position(tauri::PhysicalPosition::new(state.x, state.y));
-                        let _ = window.set_size(tauri::PhysicalSize::new(state.width, state.height));
+                        let _ =
+                            window.set_size(tauri::PhysicalSize::new(state.width, state.height));
                     }
                 }
 
@@ -172,13 +174,17 @@ pub fn run() {
                 match event {
                     tauri::WindowEvent::CloseRequested { api, .. } => {
                         // 保存窗口位置/大小
-                        if let (Ok(pos), Ok(size)) = (window.outer_position(), window.outer_size()) {
-                            save_window_state(&data_dir_event, &WindowState {
-                                x: pos.x,
-                                y: pos.y,
-                                width: size.width,
-                                height: size.height,
-                            });
+                        if let (Ok(pos), Ok(size)) = (window.outer_position(), window.outer_size())
+                        {
+                            save_window_state(
+                                &data_dir_event,
+                                &WindowState {
+                                    x: pos.x,
+                                    y: pos.y,
+                                    width: size.width,
+                                    height: size.height,
+                                },
+                            );
                         }
                         // 隐藏到托盘而不是退出
                         let _ = window.hide();
