@@ -1,8 +1,9 @@
 {
-  "currentThreadId": "88aad89e-9aaa-43dd-b5ac-7db332574126",
+  "currentThreadId": "943301da-d958-451b-a851-30ee2d76799a",
   "threadIds": [
     "64e0fe65-026c-4c38-aaab-9dc76c7685d8",
-    "88aad89e-9aaa-43dd-b5ac-7db332574126"
+    "88aad89e-9aaa-43dd-b5ac-7db332574126",
+    "943301da-d958-451b-a851-30ee2d76799a"
   ],
   "extra": {
     "branches": {},
@@ -86,6 +87,24 @@
         "timestamp": 1774269177149,
         "fileSnapshots": {},
         "description": "重启下当前项目",
+        "images": [],
+        "contextItems": []
+      },
+      {
+        "id": "5c3a8657-75b6-4a8e-b31b-f7b6358b4ac3",
+        "messageId": "b33afaee-d5e0-477e-9136-5b1c0b0752cb",
+        "timestamp": 1774271420428,
+        "fileSnapshots": {},
+        "description": "启动当前项目",
+        "images": [],
+        "contextItems": []
+      },
+      {
+        "id": "273479a5-eec1-453f-8403-95a37234aa5b",
+        "messageId": "f9b51f47-5bf9-4ee6-9c29-0a41ce9fc792",
+        "timestamp": 1774271473479,
+        "fileSnapshots": {},
+        "description": "你直接帮我启动",
         "images": [],
         "contextItems": []
       }

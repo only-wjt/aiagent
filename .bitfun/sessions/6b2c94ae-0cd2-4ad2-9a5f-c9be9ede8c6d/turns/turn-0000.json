@@ -1,0 +1,214 @@
+{
+  "schema_version": 2,
+  "turnId": "dialog_1774271906602_alwk92lxm",
+  "turnIndex": 0,
+  "sessionId": "6b2c94ae-0cd2-4ad2-9a5f-c9be9ede8c6d",
+  "timestamp": 1774271906602,
+  "userMessage": {
+    "id": "user_1774271906602",
+    "content": "首先创建一个分支",
+    "timestamp": 1774271906602
+  },
+  "modelRounds": [
+    {
+      "id": "afc58e7f-0f86-442a-ba1d-f710469154c3",
+      "turnId": "dialog_1774271906602_alwk92lxm",
+      "roundIndex": 0,
+      "timestamp": 1774271906645,
+      "textItems": [
+        {
+          "id": "text_1774271916299_qojetpxdl",
+          "content": "\n",
+          "isStreaming": false,
+          "timestamp": 1774271916299,
+          "isMarkdown": true,
+          "orderIndex": 0,
+          "status": "completed"
+        }
+      ],
+      "toolItems": [
+        {
+          "id": "toolu_1ef734af3f5748f793188909",
+          "toolName": "Git",
+          "toolCall": {
+            "input": {
+              "args": "-a",
+              "operation": "branch",
+              "working_directory": "/Users/onlywjt/Documents/ai_project/aiagent"
+            },
+            "id": "toolu_1ef734af3f5748f793188909"
+          },
+          "toolResult": {
+            "result": {
+              "command": "git branch -a",
+              "data": [
+                {
+                  "ahead": 0,
+                  "base_branch": null,
+                  "behind": 0,
+                  "branch_type": "feature",
+                  "can_merge": null,
+                  "child_branches": null,
+                  "created_at": null,
+                  "current": false,
+                  "description": null,
+                  "has_conflicts": null,
+                  "is_stale": null,
+                  "last_activity_at": "2026-03-23 07:17:15 UTC",
+                  "last_commit": "8d1e5b6c4b58b00bd3d9630617b476a5da9d10a0",
+                  "last_commit_date": "2026-03-23 07:17:15 UTC",
+                  "linked_issues": null,
+                  "merge_status": null,
+                  "merged_branches": null,
+                  "name": "feat/error-handling-and-security",
+                  "remote": false,
+                  "stats": null,
+                  "tags": null,
+                  "upstream": null
+                },
+                {
+                  "ahead": 0,
+                  "base_branch": null,
+                  "behind": 0,
+                  "branch_type": "main",
+                  "can_merge": null,
+                  "child_branches": null,
+                  "created_at": null,
+                  "current": true,
+                  "description": null,
+                  "has_conflicts": null,
+                  "is_stale": null,
+                  "last_activity_at": "2026-03-23 12:42:17 UTC",
+                  "last_commit": "b7104e7dc5338ba38c30a5400ad2f97d2ba91cd5",
+                  "last_commit_date": "2026-03-23 12:42:17 UTC",
+                  "linked_issues": null,
+                  "merge_status": null,
+                  "merged_branches": null,
+                  "name": "main",
+                  "remote": false,
+                  "stats": null,
+                  "tags": null,
+                  "upstream": "origin/main"
+                },
+                {
+                  "ahead": 0,
+                  "base_branch": null,
+                  "behind": 0,
+                  "branch_type": "other",
+                  "can_merge": null,
+                  "child_branches": null,
+                  "created_at": null,
+                  "current": false,
+                  "description": null,
+                  "has_conflicts": null,
+                  "is_stale": null,
+                  "last_activity_at": "2026-03-23 07:17:15 UTC",
+                  "last_commit": "8d1e5b6c4b58b00bd3d9630617b476a5da9d10a0",
+                  "last_commit_date": "2026-03-23 07:17:15 UTC",
+                  "linked_issues": null,
+                  "merge_status": null,
+                  "merged_branches": null,
+                  "name": "origin/feat/error-handling-and-security",
+                  "remote": true,
+                  "stats": null,
+                  "tags": null,
+                  "upstream": null
+                },
+                {
+                  "ahead": 0,
+                  "base_branch": null,
+                  "behind": 0,
+                  "branch_type": "other",
+                  "can_merge": null,
+                  "child_branches": null,
+                  "created_at": null,
+                  "current": false,
+                  "description": null,
+                  "has_conflicts": null,
+                  "is_stale": null,
+                  "last_activity_at": "2026-03-23 12:42:17 UTC",
+                  "last_commit": "b7104e7dc5338ba38c30a5400ad2f97d2ba91cd5",
+                  "last_commit_date": "2026-03-23 12:42:17 UTC",
+                  "linked_issues": null,
+                  "merge_status": null,
+                  "merged_branches": null,
+                  "name": "origin/HEAD",
+                  "remote": true,
+                  "stats": null,
+                  "tags": null,
+                  "upstream": null
+                },
+                {
+                  "ahead": 0,
+                  "base_branch": null,
+                  "behind": 0,
+                  "branch_type": "other",
+                  "can_merge": null,
+                  "child_branches": null,
+                  "created_at": null,
+                  "current": false,
+                  "description": null,
+                  "has_conflicts": null,
+                  "is_stale": null,
+                  "last_activity_at": "2026-03-23 12:42:17 UTC",
+                  "last_commit": "b7104e7dc5338ba38c30a5400ad2f97d2ba91cd5",
+                  "last_commit_date": "2026-03-23 12:42:17 UTC",
+                  "linked_issues": null,
+                  "merge_status": null,
+                  "merged_branches": null,
+                  "name": "origin/main",
+                  "remote": true,
+                  "stats": null,
+                  "tags": null,
+                  "upstream": null
+                }
+              ],
+              "execution_time_ms": 4,
+              "exit_code": 0,
+              "operation": "branch",
+              "stderr": "",
+              "stdout": "  feat/error-handling-and-security\n* main\n  origin/feat/error-handling-and-security\n  origin/HEAD\n  origin/main",
+              "success": true,
+              "working_directory": "/Users/onlywjt/Documents/ai_project/aiagent"
+            },
+            "success": true,
+            "durationMs": 4
+          },
+          "startTime": 1774271917029,
+          "endTime": 1774271917055,
+          "orderIndex": 1,
+          "status": "completed"
+        }
+      ],
+      "thinkingItems": [],
+      "startTime": 1774271906645,
+      "endTime": 1774271926325,
+      "status": "completed"
+    },
+    {
+      "id": "6fbbd88c-30c0-478f-a463-594a87faba2a",
+      "turnId": "dialog_1774271906602_alwk92lxm",
+      "roundIndex": 1,
+      "timestamp": 1774271917057,
+      "textItems": [
+        {
+          "id": "text_1774271926032_gn11ml5gc",
+          "content": "请问你想创建什么名称的分支？你想创建一个什么名称的分支？比如 `feat/xxx`、`fix/xxx` 等，请告诉我分支名称。",
+          "isStreaming": false,
+          "timestamp": 1774271926032,
+          "isMarkdown": true,
+          "orderIndex": 0,
+          "status": "completed"
+        }
+      ],
+      "toolItems": [],
+      "thinkingItems": [],
+      "startTime": 1774271917057,
+      "endTime": 1774271926325,
+      "status": "completed"
+    }
+  ],
+  "startTime": 1774271906602,
+  "endTime": 1774271926325,
+  "status": "completed"
+}
