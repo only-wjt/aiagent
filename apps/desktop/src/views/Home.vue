@@ -195,11 +195,16 @@ async function createWorkspace() {
     showToast('该路径已被其他工作区使用', 'error')
     return
   }
-  await workspaceStore.addWorkspace(name, path)
-  newWs.name = ''
-  newWs.path = ''
-  showNewWorkspace.value = false
-  showToast('工作区已创建', 'success')
+  try {
+    await workspaceStore.addWorkspace(name, path)
+    newWs.name = ''
+    newWs.path = ''
+    showNewWorkspace.value = false
+    showToast('工作区已创建', 'success')
+  } catch (error) {
+    console.error('[Home] 创建工作区失败:', error)
+    showToast('工作区创建失败', 'error')
+  }
 }
 
 function openWorkspace(id: string) {

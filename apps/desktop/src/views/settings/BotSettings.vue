@@ -58,7 +58,7 @@
               :disabled="!bot.token"
               @click="testBotConnection(bot)"
             >
-              {{ testingBot === bot.id ? '测试中...' : '🔗 测试连接' }}
+              {{ testingBot === bot.id ? '校验中...' : '🔎 校验配置' }}
             </button>
             <button
               class="btn btn-primary btn-sm"
@@ -69,7 +69,7 @@
             </button>
           </div>
           <div v-if="testResults[bot.id]" class="test-result" :class="testResults[bot.id]">
-            {{ testResults[bot.id] === 'success' ? '✅ 连接成功' : '❌ 连接失败，请检查 Token' }}
+            {{ testResults[bot.id] === 'success' ? '✅ 本地配置校验通过' : '❌ 本地配置校验失败，请检查必填项' }}
           </div>
         </div>
       </div>
@@ -154,15 +154,16 @@ async function testBotConnection(bot: BotConfig) {
   testingBot.value = bot.id
   delete testResults[bot.id]
 
-  // 模拟测试连接
+  // 这里仅做本地字段校验，真实远程接通暂未实现。
   await new Promise(r => setTimeout(r, 1500))
-  testResults[bot.id] = bot.token.length > 5 ? 'success' : 'error'
+  const hasWebhook = !bot.webhookField || !!bot.webhook?.trim()
+  testResults[bot.id] = bot.token.trim().length > 5 && hasWebhook ? 'success' : 'error'
 
   if (testResults[bot.id] === 'success') {
     bot.configured = true
-    showToast(`${bot.name} 连接测试通过`, 'success')
+    showToast(`${bot.name} 配置校验通过`, 'success')
   } else {
-    showToast(`${bot.name} 连接测试失败，请检查配置`, 'error')
+    showToast(`${bot.name} 配置校验失败，请检查必填项`, 'error')
   }
   testingBot.value = null
 }

@@ -43,7 +43,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   async function save () {
     const invoke = await getTauriInvoke()
-    if (!invoke) return
+    if (!invoke) {
+      throw new Error('Tauri not available')
+    }
     try {
       await invoke('cmd_write_json', {
         filename: 'workspaces.json',
@@ -51,6 +53,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       })
     } catch (e) {
       console.error('[WorkspaceStore] 保存失败:', e)
+      throw e
     }
   }
 

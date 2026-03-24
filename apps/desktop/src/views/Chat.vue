@@ -599,6 +599,10 @@ async function sendMessage() {
 
   // 获取 API Key
   const provider = selectedProvider.value
+  if (!provider?.apiKey) {
+    showToast('当前模型供应商未配置 API Key，请先前往设置完成配置', 'error')
+    return
+  }
   if (provider?.id && currentProviderId.value !== provider.id) {
     currentProviderId.value = provider.id
   }
@@ -652,11 +656,7 @@ async function sendMessage() {
   streamingUsage.value = ''
 
   try {
-    if (provider?.apiKey) {
-      await streamAuto(text, provider.apiKey, provider.baseUrl, provider.endpointType)
-    } else {
-      await mockStream(text)
-    }
+    await streamAuto(text, provider.apiKey, provider.baseUrl, provider.endpointType)
   } catch (error) {
     console.error('[Chat] 发送消息失败:', error)
     streamingText.value = `❌ 错误: ${(error as Error).message}`
@@ -1083,29 +1083,6 @@ async function waitForSidecarReady(sidecarUrl: string, retries: number = 8, dela
   return false
 }
 
-/** 模拟流式输出（无 API Key 时） */
-async function mockStream(prompt: string) {
-  const response = `你好！我是 AI Agent。
-
-你说的是：「${prompt}」
-
-⚠️ **API Key 未配置**
-
-请前往 **设置 → 模型供应商** 页面：
-1. 找到 **Anthropic** 供应商
-2. 输入你的 API Key
-3. 点击 **测试连接**
-
-配置完成后，我就能真正为你提供 AI 服务了！🚀`
-
-  for (const char of response) {
-    if (!isStreaming.value) break
-    streamingText.value += char
-    scrollToBottom()
-    await new Promise(r => setTimeout(r, 15))
-  }
-}
-
 function stopStreaming() {
   isStreaming.value = false
   currentAbortController?.abort()
@@ -1169,21 +1146,21 @@ async function regenerateMessage(idx: number) {
     }
   }
   if (!userPrompt) return
+  const provider = selectedProvider.value
+  if (!provider?.apiKey) {
+    showToast('当前模型供应商未配置 API Key，无法重新生成', 'error')
+    return
+  }
   // 删除该条 AI 消息
   chatStore.messages.splice(idx, 1)
   scrollToBottom()
 
   // 直接发起流式请求，不再添加用户消息
-  const provider = selectedProvider.value
   isStreaming.value = true
   streamingText.value = ''
   streamingUsage.value = ''
   try {
-    if (provider?.apiKey) {
-      await streamAuto(userPrompt, provider.apiKey, provider.baseUrl, provider.endpointType)
-    } else {
-      await mockStream(userPrompt)
-    }
+    await streamAuto(userPrompt, provider.apiKey, provider.baseUrl, provider.endpointType)
   } catch (error) {
     streamingText.value = `❌ 错误: ${(error as Error).message}`
   }

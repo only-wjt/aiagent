@@ -116,24 +116,42 @@ const newSkill = reactive({ name: '', prompt: '' })
 const deleteDialog = reactive({ visible: false, skillId: '', skillName: '' })
 const showToast = inject<(message: string, type?: 'success' | 'error' | 'info') => void>('showToast', () => {})
 
-function onToggle(skill: { id: string; enabled: boolean }) {
-  void skillStore.toggleBuiltin(skill.id)
-  showToast(skill.enabled ? '技能已启用' : '技能已禁用', 'success')
+async function onToggle(skill: { id: string; enabled: boolean }) {
+  try {
+    await skillStore.toggleBuiltin(skill.id)
+    showToast(skill.enabled ? '技能已启用' : '技能已禁用', 'success')
+  } catch (error) {
+    skill.enabled = !skill.enabled
+    console.error('[SkillSettings] 切换内置技能失败:', error)
+    showToast('技能状态保存失败', 'error')
+  }
 }
 
 async function addCustomSkill() {
   if (!newSkill.name.trim()) return
-  await skillStore.addCustomSkill(newSkill.name, newSkill.prompt)
-  newSkill.name = ''
-  newSkill.prompt = ''
-  showAddCustom.value = false
-  showToast('自定义技能已添加', 'success')
+  try {
+    await skillStore.addCustomSkill(newSkill.name, newSkill.prompt)
+    newSkill.name = ''
+    newSkill.prompt = ''
+    showAddCustom.value = false
+    showToast('自定义技能已添加', 'success')
+  } catch (error) {
+    console.error('[SkillSettings] 添加自定义技能失败:', error)
+    showToast('自定义技能添加失败', 'error')
+  }
 }
 
 async function toggleCustomSkill(id: string) {
-  await skillStore.toggleCustomSkill(id)
   const skill = customSkills.find(item => item.id === id)
-  showToast(skill?.enabled ? '自定义技能已启用' : '自定义技能已禁用', 'success')
+  if (!skill) return
+  try {
+    await skillStore.toggleCustomSkill(id)
+    showToast(skill.enabled ? '自定义技能已启用' : '自定义技能已禁用', 'success')
+  } catch (error) {
+    skill.enabled = !skill.enabled
+    console.error('[SkillSettings] 切换自定义技能失败:', error)
+    showToast('自定义技能状态保存失败', 'error')
+  }
 }
 
 function requestRemoveCustomSkill(id: string, name: string) {
@@ -149,9 +167,14 @@ function closeDeleteDialog() {
 }
 
 async function confirmRemoveCustomSkill() {
-  await skillStore.removeCustomSkill(deleteDialog.skillId)
-  closeDeleteDialog()
-  showToast('自定义技能已删除', 'success')
+  try {
+    await skillStore.removeCustomSkill(deleteDialog.skillId)
+    closeDeleteDialog()
+    showToast('自定义技能已删除', 'success')
+  } catch (error) {
+    console.error('[SkillSettings] 删除自定义技能失败:', error)
+    showToast('自定义技能删除失败', 'error')
+  }
 }
 </script>
 

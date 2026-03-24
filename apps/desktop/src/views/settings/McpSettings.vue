@@ -132,24 +132,43 @@ async function saveTool() {
   })
 
   if (editingTool.value) {
-    await mcpStore.updateTool(editingTool.value.id, {
-      name: form.name, command: form.command, description: form.description, tags, env,
-    })
-    showToast('MCP 服务器已保存', 'success')
+    try {
+      await mcpStore.updateTool(editingTool.value.id, {
+        name: form.name, command: form.command, description: form.description, tags, env,
+      })
+      showToast('MCP 服务器已保存', 'success')
+    } catch (error) {
+      console.error('[McpSettings] 保存 MCP 服务器失败:', error)
+      showToast('MCP 服务器保存失败', 'error')
+      return
+    }
   } else {
-    await mcpStore.addTool({
-      name: form.name, command: form.command, description: form.description,
-      tags, enabled: true, env,
-    })
-    showToast('MCP 服务器已添加', 'success')
+    try {
+      await mcpStore.addTool({
+        name: form.name, command: form.command, description: form.description,
+        tags, enabled: true, env,
+      })
+      showToast('MCP 服务器已添加', 'success')
+    } catch (error) {
+      console.error('[McpSettings] 添加 MCP 服务器失败:', error)
+      showToast('MCP 服务器添加失败', 'error')
+      return
+    }
   }
   closeModal()
 }
 
 async function toggleTool(id: string) {
-  await mcpStore.toggleTool(id)
   const tool = tools.find(item => item.id === id)
-  showToast(tool?.enabled ? 'MCP 工具已启用' : 'MCP 工具已禁用', 'success')
+  if (!tool) return
+  try {
+    await mcpStore.toggleTool(id)
+    showToast(tool.enabled ? 'MCP 工具已启用' : 'MCP 工具已禁用', 'success')
+  } catch (error) {
+    tool.enabled = !tool.enabled
+    console.error('[McpSettings] 切换 MCP 工具失败:', error)
+    showToast('MCP 工具状态保存失败', 'error')
+  }
 }
 
 function requestRemoveTool(id: string, name: string) {
@@ -165,9 +184,14 @@ function closeDeleteDialog() {
 }
 
 async function confirmRemoveTool() {
-  await mcpStore.removeTool(deleteDialog.toolId)
-  closeDeleteDialog()
-  showToast('MCP 服务器已删除', 'success')
+  try {
+    await mcpStore.removeTool(deleteDialog.toolId)
+    closeDeleteDialog()
+    showToast('MCP 服务器已删除', 'success')
+  } catch (error) {
+    console.error('[McpSettings] 删除 MCP 服务器失败:', error)
+    showToast('MCP 服务器删除失败', 'error')
+  }
 }
 </script>
 
