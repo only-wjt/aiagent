@@ -32,3 +32,9 @@ apps/desktop/src-tauri/target/
 
 # Sidecar 编译产物
 sidecar/sidecar-binary*
+
+# ai工作目录
+.adnify
+.bitfun
+.claude
+AGENTS.md
