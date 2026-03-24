@@ -37,6 +37,7 @@ sidecar/sidecar-binary*
 .adnify
 .bitfun
 .claude
+AGENTS.md
 .conductor
 AGENTS.md
 CLAUDE.md
