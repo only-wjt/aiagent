@@ -21,11 +21,11 @@
           </div>
           <div class="tool-actions">
             <label class="toggle">
-              <input type="checkbox" v-model="tool.enabled" />
+              <input type="checkbox" :checked="tool.enabled" @change="toggleTool(tool.id)" />
               <span class="slider"></span>
             </label>
             <button class="btn-icon" @click="editTool(tool)" title="编辑">✏️</button>
-            <button class="btn-icon btn-delete" @click="removeTool(tool.id)" title="删除">🗑️</button>
+            <button class="btn-icon btn-delete" @click="requestRemoveTool(tool.id, tool.name)" title="删除">🗑️</button>
           </div>
         </div>
         <p class="tool-desc">{{ tool.description }}</p>
@@ -75,11 +75,23 @@
         </div>
       </div>
     </div>
+
+    <div v-if="deleteDialog.visible" class="modal-overlay" @click.self="closeDeleteDialog">
+      <div class="modal card confirm-modal">
+        <h3 class="modal-title">删除 MCP 服务器</h3>
+        <p class="confirm-hint">删除后将移除该 MCP 服务器配置，不会保留启动命令和环境变量。</p>
+        <div class="confirm-name">{{ deleteDialog.toolName }}</div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" @click="closeDeleteDialog">取消</button>
+          <button class="btn btn-danger" @click="confirmRemoveTool">确认删除</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, inject } from 'vue'
 import { useMcpStore, type McpTool } from '../../stores/mcpStore'
 
 const mcpStore = useMcpStore()
@@ -88,6 +100,8 @@ const tools = mcpStore.tools
 const showAddModal = ref(false)
 const editingTool = ref<McpTool | null>(null)
 const form = reactive({ name: '', command: '', description: '', tagsStr: '', envStr: '' })
+const deleteDialog = reactive({ visible: false, toolId: '', toolName: '' })
+const showToast = inject<(message: string, type?: 'success' | 'error' | 'info') => void>('showToast', () => {})
 
 function statusText(s: string) {
   return { connected: '已连接', disconnected: '未连接', error: '错误' }[s] || s
@@ -121,17 +135,39 @@ async function saveTool() {
     await mcpStore.updateTool(editingTool.value.id, {
       name: form.name, command: form.command, description: form.description, tags, env,
     })
+    showToast('MCP 服务器已保存', 'success')
   } else {
     await mcpStore.addTool({
       name: form.name, command: form.command, description: form.description,
       tags, enabled: true, env,
     })
+    showToast('MCP 服务器已添加', 'success')
   }
   closeModal()
 }
 
-async function removeTool(id: string) {
-  await mcpStore.removeTool(id)
+async function toggleTool(id: string) {
+  await mcpStore.toggleTool(id)
+  const tool = tools.find(item => item.id === id)
+  showToast(tool?.enabled ? 'MCP 工具已启用' : 'MCP 工具已禁用', 'success')
+}
+
+function requestRemoveTool(id: string, name: string) {
+  deleteDialog.visible = true
+  deleteDialog.toolId = id
+  deleteDialog.toolName = name
+}
+
+function closeDeleteDialog() {
+  deleteDialog.visible = false
+  deleteDialog.toolId = ''
+  deleteDialog.toolName = ''
+}
+
+async function confirmRemoveTool() {
+  await mcpStore.removeTool(deleteDialog.toolId)
+  closeDeleteDialog()
+  showToast('MCP 服务器已删除', 'success')
 }
 </script>
 
@@ -164,6 +200,7 @@ async function removeTool(id: string) {
 .btn-icon { background: none; border: none; cursor: pointer; font-size: 14px; padding: 4px; border-radius: var(--radius-sm); transition: all var(--transition-fast); }
 .btn-icon:hover { background: var(--color-bg-hover); }
 .btn-delete:hover { background: rgba(255, 77, 79, 0.1); }
+.btn-danger { background: var(--color-error); color: #fff; border: none; }
 
 /* Toggle */
 .toggle { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; }
@@ -183,6 +220,9 @@ async function removeTool(id: string) {
 .modal { width: 480px; max-height: 80vh; overflow-y: auto; padding: var(--space-xl); animation: modal-in 0.2s ease; }
 @keyframes modal-in { from { opacity: 0; transform: scale(0.95) translateY(10px); } to { opacity: 1; transform: none; } }
 .modal-title { font-size: var(--font-size-lg); font-weight: 600; margin-bottom: var(--space-lg); }
+.confirm-modal { width: min(420px, calc(100vw - 32px)); }
+.confirm-hint { margin: 0 0 var(--space-md); color: var(--color-text-tertiary); font-size: var(--font-size-sm); line-height: 1.6; }
+.confirm-name { padding: 10px 12px; border-radius: var(--radius-md); background: var(--color-bg-secondary); font-weight: 600; }
 
 .form-group { margin-bottom: var(--space-md); }
 .form-group label { display: block; font-size: var(--font-size-sm); font-weight: 500; margin-bottom: var(--space-xs); color: var(--color-text-primary); }

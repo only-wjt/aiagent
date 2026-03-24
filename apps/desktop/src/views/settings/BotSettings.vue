@@ -65,7 +65,7 @@
               :disabled="!bot.token"
               @click="saveBotConfig(bot)"
             >
-              💾 保存
+              {{ savingBot === bot.id ? '保存中...' : '💾 保存' }}
             </button>
           </div>
           <div v-if="testResults[bot.id]" class="test-result" :class="testResults[bot.id]">
@@ -78,12 +78,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, inject, onMounted } from 'vue'
+import { getTauriInvoke } from '../../utils/tauri'
 
 interface BotConfig {
   id: string; name: string; icon: string; description: string; configured: boolean
   token: string; webhook?: string; webhookField?: boolean
   tokenLabel?: string; tokenPlaceholder?: string
+}
+
+interface SavedBotConfig {
+  id: string
+  token: string
+  webhook?: string
+  configured: boolean
 }
 
 const bots = ref<BotConfig[]>([
@@ -98,9 +106,48 @@ const expandedBot = ref<string | null>(null)
 const showToken = reactive<Record<string, boolean>>({})
 const testingBot = ref<string | null>(null)
 const testResults = reactive<Record<string, 'success' | 'error'>>({})
+const savingBot = ref<string | null>(null)
+const showToast = inject<(message: string, type?: 'success' | 'error' | 'info') => void>('showToast', () => {})
 
 function toggleExpand(botId: string) {
   expandedBot.value = expandedBot.value === botId ? null : botId
+}
+
+onMounted(() => {
+  void loadBotConfigs()
+})
+
+async function loadBotConfigs() {
+  const invoke = await getTauriInvoke()
+  if (!invoke) return
+  try {
+    const json = await invoke('cmd_read_json', { filename: 'bot_configs.json' }) as string
+    if (!json || json === 'null') return
+    const saved = JSON.parse(json) as SavedBotConfig[]
+    for (const bot of bots.value) {
+      const matched = saved.find(item => item.id === bot.id)
+      if (!matched) continue
+      bot.token = matched.token
+      bot.webhook = matched.webhook || ''
+      bot.configured = matched.configured
+    }
+  } catch (error) {
+    console.error('[BotSettings] 加载配置失败:', error)
+  }
+}
+
+async function persistBotConfigs() {
+  const invoke = await getTauriInvoke()
+  if (!invoke) return
+  await invoke('cmd_write_json', {
+    filename: 'bot_configs.json',
+    data: JSON.stringify(bots.value.map(bot => ({
+      id: bot.id,
+      token: bot.token,
+      webhook: bot.webhook || '',
+      configured: bot.configured,
+    } satisfies SavedBotConfig))),
+  })
 }
 
 async function testBotConnection(bot: BotConfig) {
@@ -113,14 +160,25 @@ async function testBotConnection(bot: BotConfig) {
 
   if (testResults[bot.id] === 'success') {
     bot.configured = true
+    showToast(`${bot.name} 连接测试通过`, 'success')
+  } else {
+    showToast(`${bot.name} 连接测试失败，请检查配置`, 'error')
   }
   testingBot.value = null
 }
 
-function saveBotConfig(bot: BotConfig) {
-  if (bot.token) {
+async function saveBotConfig(bot: BotConfig) {
+  if (!bot.token) return
+  savingBot.value = bot.id
+  try {
     bot.configured = true
-    console.log(`[Bot] 已保存 ${bot.name} 配置`)
+    await persistBotConfigs()
+    showToast(`${bot.name} 配置已保存`, 'success')
+  } catch (error) {
+    console.error('[BotSettings] 保存配置失败:', error)
+    showToast(`${bot.name} 配置保存失败`, 'error')
+  } finally {
+    savingBot.value = null
   }
 }
 </script>

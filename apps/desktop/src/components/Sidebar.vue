@@ -101,7 +101,7 @@
         <div class="group-header" @click="toggleWorkspace('default')">
           <Bot :size="12" class="group-icon" />
           <span class="group-title">默认工作区</span>
-          <span class="ws-path">~/Documents/aiagent</span>
+          <span class="ws-path">{{ defaultWorkspacePath }}</span>
           <ChevronDown v-if="expandedWorkspaces.default" :size="12" class="group-chevron" />
           <ChevronRight v-else :size="12" class="group-chevron" />
         </div>
@@ -195,6 +195,7 @@ import { ref, reactive, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useChatStore } from '../stores/chatStore'
 import { useWorkspaceStore } from '../stores/workspaceStore'
+import { useConfigStore } from '../stores/configStore'
 import {
   MessageSquare, ChevronLeft, ChevronRight, ChevronDown,
   Plus, Trash2, Search, Edit3, Download, Pin, Bot, Folder, GitBranch,
@@ -204,10 +205,12 @@ const route = useRoute()
 const router = useRouter()
 const chatStore = useChatStore()
 const workspaceStore = useWorkspaceStore()
+const configStore = useConfigStore()
 const isCollapsed = ref(false)
 const searchQuery = ref('')
 const activeTab = ref<'chat' | 'agent'>('chat')
 const pinnedExpanded = ref(true)
+const defaultWorkspacePath = computed(() => configStore.appConfig.defaultWorkspacePath || '~')
 
 // ====== Agent 工作区 + 会话管理 ======
 const expandedWorkspaces = reactive<Record<string, boolean>>({ default: true })
