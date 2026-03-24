@@ -156,17 +156,16 @@ const selectedModelLabel = computed(() => {
 
 function startChat() {
   const prompt = quickPrompt.value.trim()
-  if (!prompt) {
-    router.push('/chat')
-    return
-  }
-
   const sessionId = chatStore.createConversation(
     selectedModel.value,
     undefined,
     selectedProviderId.value || undefined,
   )
-  sessionStorage.setItem('quickPrompt', prompt)
+  if (prompt) {
+    sessionStorage.setItem('quickPrompt', prompt)
+  } else {
+    sessionStorage.removeItem('quickPrompt')
+  }
   quickPrompt.value = ''
   router.push(`/chat/${sessionId}`)
 }
