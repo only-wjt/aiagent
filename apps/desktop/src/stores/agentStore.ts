@@ -13,15 +13,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { apiFetch } from '../utils/http'
 import { useConfigStore } from './configStore'
-
-// 尝试导入 Tauri API
-let invoke: ((cmd: string, args?: Record<string, unknown>) => Promise<unknown>) | null = null
-try {
-  const tauri = await import('@tauri-apps/api/core')
-  invoke = tauri.invoke
-} catch {
-  console.warn('[AgentStore] Tauri API 不可用')
-}
+import { getTauriInvoke } from '../utils/tauri'
 
 /** Agent 消息类型 */
 export interface AgentMessage {
@@ -251,6 +243,7 @@ export const useAgentStore = defineStore('agent', () => {
 
   /** 在 Tauri 后端执行工具 */
   async function executeTool(name: string, args: Record<string, unknown>): Promise<{ success: boolean; output: string; error?: string }> {
+    const invoke = await getTauriInvoke()
     if (!invoke) {
       return { success: false, output: '', error: 'Tauri 不可用' }
     }
@@ -404,9 +397,17 @@ export const useAgentStore = defineStore('agent', () => {
 
           if (endpointType === 'gemini') {
             // 通过 sidecar proxy 转换：发送 Anthropic 格式，sidecar 转为 Gemini 原生格式
-            const port = invoke
-              ? await (invoke('cmd_get_session_port', { sessionId: 'default' }) as Promise<number | null>).catch(() => null)
-              : null
+            const invoke = await getTauriInvoke()
+            let port: number | null = null
+            if (invoke) {
+              const workspacePath = currentWorkspace.value || '~'
+              port = await (invoke('cmd_ensure_session_sidecar', {
+                sessionId: 'agent-default',
+                workspacePath,
+                ownerType: 'agent',
+                ownerId: 'default-agent',
+              }) as Promise<{ port: number }>).then((sidecar) => sidecar.port).catch(() => null)
+            }
             const proxyBase = port ? `http://localhost:${port}` : 'http://localhost:3700'
             url = `${proxyBase}/proxy/v1/messages`
             reqHeaders['x-target-provider'] = 'gemini'

@@ -6,15 +6,7 @@
  */
 
 import { ref } from 'vue'
-
-// 尝试导入 Tauri API（开发模式下可能不可用）
-let invoke: ((cmd: string, args?: Record<string, unknown>) => Promise<unknown>) | null = null
-try {
-  const tauri = await import('@tauri-apps/api/core')
-  invoke = tauri.invoke
-} catch {
-  console.warn('[useSidecar] Tauri API 不可用，使用直接 HTTP 模式')
-}
+import { getTauriInvoke } from '../utils/tauri'
 
 /** Sidecar 连接信息 */
 export interface SidecarConnection {
@@ -43,6 +35,7 @@ export function useSidecar () {
     error.value = null
 
     try {
+      const invoke = await getTauriInvoke()
       if (invoke) {
         // Tauri 模式：通过 IPC 管理 Sidecar
         const result = await invoke('cmd_ensure_session_sidecar', {
@@ -79,6 +72,7 @@ export function useSidecar () {
    * 释放 Sidecar
    */
   async function releaseSidecar (sessionId: string, ownerId: string = 'tab-default') {
+    const invoke = await getTauriInvoke()
     if (invoke) {
       await invoke('cmd_release_session_sidecar', {
         sessionId,

@@ -7,15 +7,7 @@
 
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-
-// 尝试导入 Tauri API
-let invoke: ((cmd: string, args?: Record<string, unknown>) => Promise<unknown>) | null = null
-try {
-  const tauri = await import('@tauri-apps/api/core')
-  invoke = tauri.invoke
-} catch {
-  console.warn('[ChatStore] Tauri API 不可用')
-}
+import { getTauriInvoke } from '../utils/tauri'
 
 /** 消息内容块 */
 export interface ContentBlock {
@@ -98,6 +90,7 @@ export const useChatStore = defineStore('chat', () => {
 
   /** 加载对话列表 */
   async function loadConversationList () {
+    const invoke = await getTauriInvoke()
     if (!invoke) return
     try {
       const list = await invoke('cmd_list_conversations') as Array<{
@@ -147,6 +140,7 @@ export const useChatStore = defineStore('chat', () => {
 
   /** 加载指定对话 */
   async function loadConversation (id: string) {
+    const invoke = await getTauriInvoke()
     if (!invoke) return
     try {
       const conv = await invoke('cmd_load_conversation', { id }) as {
@@ -185,6 +179,7 @@ export const useChatStore = defineStore('chat', () => {
 
   /** 实际执行保存 */
   async function _doSaveConversation () {
+    const invoke = await getTauriInvoke()
     if (!invoke || !currentConversationId.value) return
     try {
       // 自动生成标题：取第一条用户消息的前 30 字
@@ -252,6 +247,7 @@ export const useChatStore = defineStore('chat', () => {
 
   /** 删除对话 */
   async function deleteConversation (id: string) {
+    const invoke = await getTauriInvoke()
     if (!invoke) return
     try {
       await invoke('cmd_delete_conversation', { id })
@@ -279,6 +275,7 @@ export const useChatStore = defineStore('chat', () => {
 
   /** 置顶/取消置顶（同步持久化） */
   async function togglePin (id: string) {
+    const invoke = await getTauriInvoke()
     const conv = conversations.value.find(c => c.id === id)
     if (conv) {
       conv.pinned = !conv.pinned
@@ -290,7 +287,7 @@ export const useChatStore = defineStore('chat', () => {
             .map(c => c.id)
           await invoke('cmd_write_json', {
             filename: 'pinned_conversations.json',
-            data: pinnedIds,
+            data: JSON.stringify(pinnedIds),
           })
         } catch (e) {
           console.error('[ChatStore] 保存置顶状态失败:', e)
@@ -301,12 +298,14 @@ export const useChatStore = defineStore('chat', () => {
 
   /** 加载置顶状态 */
   async function loadPinnedState () {
+    const invoke = await getTauriInvoke()
     if (!invoke) return
     try {
-      const pinnedIds = await invoke('cmd_read_json', {
+      const json = await invoke('cmd_read_json', {
         filename: 'pinned_conversations.json',
-      }) as string[] | null
-      if (pinnedIds && Array.isArray(pinnedIds)) {
+      }) as string | null
+      if (json && json !== 'null') {
+        const pinnedIds = JSON.parse(json) as string[]
         for (const conv of conversations.value) {
           conv.pinned = pinnedIds.includes(conv.id)
         }

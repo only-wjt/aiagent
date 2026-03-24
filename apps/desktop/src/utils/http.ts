@@ -5,15 +5,16 @@
  * 绕过浏览器 CORS 限制。在普通浏览器环境下回退到 window.fetch。
  */
 
-let tauriFetch: typeof globalThis.fetch | null = null
+let tauriFetchPromise: Promise<typeof globalThis.fetch | null> | null = null
 
-// 尝试动态加载 Tauri HTTP 插件
-try {
-  const httpPlugin = await import('@tauri-apps/plugin-http')
-  tauriFetch = httpPlugin.fetch
-  console.log('[HTTP] 使用 Tauri HTTP 插件（绕过 CORS）')
-} catch {
-  console.warn('[HTTP] Tauri HTTP 插件不可用，回退到浏览器 fetch')
+function getTauriFetch (): Promise<typeof globalThis.fetch | null> {
+  if (!tauriFetchPromise) {
+    tauriFetchPromise = import('@tauri-apps/plugin-http')
+      .then((httpPlugin) => httpPlugin.fetch)
+      .catch(() => null)
+  }
+
+  return tauriFetchPromise
 }
 
 /**
@@ -24,8 +25,11 @@ export function apiFetch(
   input: string | URL | Request,
   init?: RequestInit,
 ): Promise<Response> {
-  if (tauriFetch) {
-    return tauriFetch(input, init)
-  }
-  return globalThis.fetch(input, init)
+  return getTauriFetch().then((tauriFetch) => {
+    if (tauriFetch) {
+      return tauriFetch(input, init)
+    }
+
+    return globalThis.fetch(input, init)
+  })
 }

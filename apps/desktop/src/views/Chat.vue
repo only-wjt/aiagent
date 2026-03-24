@@ -216,7 +216,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, onMounted, onUnmounted, computed, inject } from 'vue'
+import { ref, nextTick, onMounted, onUnmounted, computed, inject, watch } from 'vue'
 import { useSidecar } from '../composables/useSidecar'
 import { useConfigStore } from '../stores/configStore'
 import { useChatStore, type ChatMessage } from '../stores/chatStore'
@@ -225,7 +225,7 @@ import { useAgentStore } from '../stores/agentStore'
 import { apiFetch } from '../utils/http'
 import { MessageSquare, Trash2, Plus, Bot, User, Copy, RotateCcw, Edit2, StopCircle, Download, ImageIcon } from 'lucide-vue-next'
 
-const { getBaseUrl } = useSidecar()
+const { ensureSidecar, releaseSidecar, getBaseUrl } = useSidecar()
 const configStore = useConfigStore()
 const chatStore = useChatStore()
 const skillStore = useSkillStore()
@@ -256,6 +256,8 @@ const showScrollBtn = ref(false)
 const pendingImages = ref<string[]>([])
 const imageInputRef = ref<HTMLInputElement | null>(null)
 let currentAbortController: AbortController | null = null
+const sidecarOwnerId = `chat-${crypto.randomUUID()}`
+const attachedSidecarSessionId = ref<string | null>(null)
 
 // 工具执行确认
 const pendingToolCall = computed(() => agentStore.pendingToolCall)
@@ -283,6 +285,8 @@ function rejectPendingTool() {
 const availableModels = computed(() => {
   return configStore.allEnabledModels()
 })
+const activeSidecarSessionId = computed(() => chatStore.currentConversationId || 'default')
+const activeWorkspacePath = computed(() => configStore.appConfig.defaultWorkspacePath || '~')
 
 function modelDisplayName(id: string) {
   const m = availableModels.value.find(m => m.id === id)
@@ -315,6 +319,30 @@ function handleKeyDown(e: KeyboardEvent) {
   }
 }
 
+async function ensureActiveSidecarSession(sessionId: string = activeSidecarSessionId.value) {
+  if (attachedSidecarSessionId.value && attachedSidecarSessionId.value !== sessionId) {
+    await releaseActiveSidecarSession(attachedSidecarSessionId.value)
+  }
+
+  const connection = await ensureSidecar(sessionId, activeWorkspacePath.value, sidecarOwnerId)
+  attachedSidecarSessionId.value = connection.sessionId
+  return connection
+}
+
+async function releaseActiveSidecarSession(sessionId: string | null = attachedSidecarSessionId.value) {
+  if (!sessionId) return
+
+  try {
+    await releaseSidecar(sessionId, sidecarOwnerId)
+  } catch (error) {
+    console.warn('[Chat] 释放 Sidecar 失败:', error)
+  } finally {
+    if (attachedSidecarSessionId.value === sessionId) {
+      attachedSidecarSessionId.value = null
+    }
+  }
+}
+
 onMounted(() => {
   document.addEventListener('click', handleGlobalClick)
   document.addEventListener('keydown', handleKeyDown)
@@ -323,6 +351,12 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener('click', handleGlobalClick)
   document.removeEventListener('keydown', handleKeyDown)
+})
+
+watch(() => chatStore.currentConversationId, (nextId, prevId) => {
+  if (prevId && prevId !== nextId) {
+    void releaseActiveSidecarSession(prevId)
+  }
 })
 
 function clearChat() {
@@ -348,6 +382,13 @@ function getMessageText(msg: ChatMessage): string {
     .filter(b => b.type === 'text')
     .map(b => b.text || '')
     .join('')
+}
+
+function buildDirectHistoryMessages() {
+  return chatStore.messages.map(m => ({
+    role: m.role,
+    content: m.content.filter(b => b.type === 'text').map(b => b.text || '').join(''),
+  }))
 }
 
 // 安全 Markdown 渲染（先转义 HTML，再应用格式）
@@ -478,6 +519,8 @@ async function sendMessage() {
 
 /** 从 Sidecar SSE 流式读取（POST，避免 apiKey 暴露在 URL 中） */
 async function streamFromSidecar(prompt: string, apiKey: string, baseUrl?: string, endpointType?: string) {
+  const sessionId = activeSidecarSessionId.value
+  await ensureActiveSidecarSession(sessionId)
   const sidecarUrl = getBaseUrl()
 
   currentAbortController = new AbortController()
@@ -485,7 +528,7 @@ async function streamFromSidecar(prompt: string, apiKey: string, baseUrl?: strin
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      sessionId: 'default',
+      sessionId,
       prompt,
       apiKey,
       model: currentModel.value,
@@ -565,14 +608,11 @@ function handleSSEEvent(event: { type: string; data?: Record<string, unknown> })
  * 直接调用 OpenAI / OpenAI 兼容 API（无需 Sidecar）
  * 支持所有兼容 OpenAI Chat Completions 格式的服务（DeepSeek、通义千问等）
  */
-async function streamFromOpenAI(prompt: string, apiKey: string, baseUrl: string) {
+async function streamFromOpenAI(_prompt: string, apiKey: string, baseUrl: string) {
   const url = `${baseUrl.replace(/\/+$/, '')}/v1/chat/completions`
 
   // 构建消息历史
-  const historyMessages = chatStore.messages.map(m => ({
-    role: m.role,
-    content: m.content.filter(b => b.type === 'text').map(b => b.text || '').join(''),
-  }))
+  const historyMessages = buildDirectHistoryMessages()
 
   // 添加 system prompt（技能注入）
   const systemMessages: Array<{role: string; content: string}> = []
@@ -592,7 +632,6 @@ async function streamFromOpenAI(prompt: string, apiKey: string, baseUrl: string)
       messages: [
         ...systemMessages,
         ...historyMessages,
-        { role: 'user', content: prompt },
       ],
       stream: true,
     }),
@@ -647,14 +686,11 @@ async function streamFromOpenAI(prompt: string, apiKey: string, baseUrl: string)
 /**
  * 直接调用 Anthropic Messages API（无需 Sidecar）
  */
-async function streamFromAnthropic(prompt: string, apiKey: string, baseUrl: string) {
+async function streamFromAnthropic(_prompt: string, apiKey: string, baseUrl: string) {
   const url = `${baseUrl.replace(/\/+$/, '')}/v1/messages`
 
   // 构建消息历史
-  const historyMessages = chatStore.messages.map(m => ({
-    role: m.role,
-    content: m.content.filter(b => b.type === 'text').map(b => b.text || '').join(''),
-  }))
+  const historyMessages = buildDirectHistoryMessages()
 
   // System prompt
   const systemPrompt = skillStore.combinedSkillPrompt || undefined
@@ -671,10 +707,7 @@ async function streamFromAnthropic(prompt: string, apiKey: string, baseUrl: stri
       model: currentModel.value,
       max_tokens: 8192,
       system: systemPrompt,
-      messages: [
-        ...historyMessages,
-        { role: 'user', content: prompt },
-      ],
+      messages: historyMessages,
       stream: true,
     }),
     signal: currentAbortController.signal,
@@ -726,20 +759,14 @@ async function streamFromAnthropic(prompt: string, apiKey: string, baseUrl: stri
  * 直接调用 OpenAI Responses API（/v1/responses，2025 年新接口）
  * 使用语义化 SSE 事件格式
  */
-async function streamFromOpenAIResponses(prompt: string, apiKey: string, baseUrl: string) {
+async function streamFromOpenAIResponses(_prompt: string, apiKey: string, baseUrl: string) {
   const url = `${baseUrl.replace(/\/+$/, '')}/v1/responses`
 
   // 构建输入：Responses API 使用 input 字段（支持字符串或消息数组）
-  const historyMessages = chatStore.messages.map(m => ({
-    role: m.role,
-    content: m.content.filter(b => b.type === 'text').map(b => b.text || '').join(''),
-  }))
+  const historyMessages = buildDirectHistoryMessages()
 
   // 构建 input 消息数组
-  const inputMessages = [
-    ...historyMessages,
-    { role: 'user', content: prompt },
-  ]
+  const inputMessages = historyMessages
 
   // 系统指令（技能注入）
   const instructions = skillStore.combinedSkillPrompt || undefined
@@ -846,6 +873,7 @@ async function streamAuto(prompt: string, apiKey: string, baseUrl?: string, endp
 
   // 尝试 Sidecar 优先
   try {
+    await ensureActiveSidecarSession()
     const sidecarUrl = getBaseUrl()
     const healthCheck = await fetch(`${sidecarUrl}/health`, { signal: AbortSignal.timeout(1000) }).catch(() => null)
     if (healthCheck?.ok) {
@@ -863,6 +891,8 @@ async function streamAuto(prompt: string, apiKey: string, baseUrl?: string, endp
     await streamFromOpenAI(prompt, apiKey, url)
   } else if (type === 'anthropic') {
     await streamFromAnthropic(prompt, apiKey, url)
+  } else if (type === 'gemini') {
+    throw new Error('Gemini 供应商当前依赖 Sidecar 代理，请确认桌面侧 Sidecar 可用')
   } else {
     // 其他类型尝试 OpenAI 兼容格式
     await streamFromOpenAI(prompt, apiKey, url)
@@ -896,6 +926,12 @@ function stopStreaming() {
   isStreaming.value = false
   currentAbortController?.abort()
   currentAbortController = null
+
+  void fetch(`${getBaseUrl()}/api/chat/stop`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId: activeSidecarSessionId.value }),
+  }).catch(() => {})
 }
 
 function handleKeydown(e: KeyboardEvent) {
@@ -1100,6 +1136,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   stopStreaming()
+  void releaseActiveSidecarSession()
   window.removeEventListener('keydown', handleGlobalShortcut)
 })
 </script>
@@ -1626,3 +1663,4 @@ onUnmounted(() => {
   margin-top: var(--space-md);
   justify-content: flex-end;
 }
+</style>

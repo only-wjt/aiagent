@@ -216,7 +216,7 @@ async function handleChatStream (
   const model = body.model || 'claude-sonnet-4-20250514'
   const baseUrl = body.baseUrl || undefined
   const endpointType = body.endpointType || undefined
-  const skillPrompt = body.skillPrompt || undefined
+      const skillPrompt = body.skillPrompt || undefined
 
   const encoder = new TextEncoder()
 
@@ -243,7 +243,7 @@ async function handleChatStream (
       }
 
       // 更新当前 skill prompt
-      if (skillPrompt) currentSkillPrompt = skillPrompt
+      currentSkillPrompt = skillPrompt || ''
 
       // 有 prompt 时，使用 Agent SDK 流式响应
       const session = getOrCreateAgentSession(sessionId, {
@@ -422,18 +422,25 @@ function getOrCreateAgentSession (
   }
 
   // 复合缓存 key：同一个 session + 同型号 + 同端点才复用
-  const cacheKey = `${sessionId}:${config.model}:${config.endpointType || 'anthropic'}`
+  const cacheKey = `${sessionId}:${config.model}:${config.endpointType || 'anthropic'}:${config.baseUrl || ''}`
+
+  const systemPrompt = buildSystemPrompt(
+    { type: 'desktop' },
+    currentSkillPrompt || undefined,
+  )
 
   // 更新活跃时间
   sessionLastActive.set(cacheKey, Date.now())
 
   // 复用已有 session
   if (activeSessions.has(cacheKey)) {
-    return activeSessions.get(cacheKey)!
+    const existing = activeSessions.get(cacheKey)!
+    existing.setSystemPrompt(systemPrompt)
+    existing.setModel(config.model)
+    return existing
   }
 
   // 创建新 session
-  const systemPrompt = buildSystemPrompt({ type: 'desktop' })
   const session = new AgentSession({
     apiKey: config.apiKey,
     model: config.model,

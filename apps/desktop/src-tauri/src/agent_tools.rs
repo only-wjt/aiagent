@@ -4,7 +4,7 @@
 //! 所有工具在指定工作区目录下执行，确保安全隔离。
 
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use wait_timeout::ChildExt;
 
@@ -32,12 +32,47 @@ pub struct ToolResult {
 
 /// 解析工作区路径（支持 ~ 展开）
 fn resolve_workspace(workspace: &str) -> PathBuf {
-    if workspace.starts_with('~') {
+    if workspace == "~" {
+        return dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    }
+    if let Some(stripped) = workspace.strip_prefix("~/") {
         if let Some(home) = dirs::home_dir() {
-            return home.join(&workspace[2..]);
+            return home.join(stripped);
         }
     }
     PathBuf::from(workspace)
+}
+
+/// 规范化路径，消除 "." 和 ".."
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+
+    normalized
+}
+
+/// 将用户提供的相对路径解析到工作区内，禁止越界访问
+fn resolve_path_within_workspace(workspace: &Path, input: &str) -> Result<PathBuf, String> {
+    let requested = Path::new(input);
+    if requested.is_absolute() {
+        return Err("不允许使用绝对路径".into());
+    }
+
+    let full_path = normalize_path(&workspace.join(requested));
+    if !full_path.starts_with(workspace) {
+        return Err("路径超出工作区".into());
+    }
+
+    Ok(full_path)
 }
 
 /// 执行 Bash 命令
@@ -135,7 +170,16 @@ fn tool_read_file(args: &serde_json::Value, workspace: &Path) -> ToolResult {
         };
     }
 
-    let full_path = workspace.join(file_path);
+    let full_path = match resolve_path_within_workspace(workspace, file_path) {
+        Ok(path) => path,
+        Err(error) => {
+            return ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(error),
+            }
+        }
+    };
     match std::fs::read_to_string(&full_path) {
         Ok(content) => {
             let truncated = if content.len() > 100000 {
@@ -174,7 +218,16 @@ fn tool_write_file(args: &serde_json::Value, workspace: &Path) -> ToolResult {
         };
     }
 
-    let full_path = workspace.join(file_path);
+    let full_path = match resolve_path_within_workspace(workspace, file_path) {
+        Ok(path) => path,
+        Err(error) => {
+            return ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(error),
+            }
+        }
+    };
     // 确保父目录存在
     if let Some(parent) = full_path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -214,7 +267,16 @@ fn tool_edit_file(args: &serde_json::Value, workspace: &Path) -> ToolResult {
         };
     }
 
-    let full_path = workspace.join(file_path);
+    let full_path = match resolve_path_within_workspace(workspace, file_path) {
+        Ok(path) => path,
+        Err(error) => {
+            return ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(error),
+            }
+        }
+    };
     match std::fs::read_to_string(&full_path) {
         Ok(content) => {
             if !content.contains(old_text) {
@@ -252,7 +314,16 @@ fn tool_list_dir(args: &serde_json::Value, workspace: &Path) -> ToolResult {
         .and_then(|v| v.as_str())
         .unwrap_or(".");
 
-    let full_path = workspace.join(dir_path);
+    let full_path = match resolve_path_within_workspace(workspace, dir_path) {
+        Ok(path) => path,
+        Err(error) => {
+            return ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(error),
+            }
+        }
+    };
     match std::fs::read_dir(&full_path) {
         Ok(entries) => {
             let mut items: Vec<String> = Vec::new();
@@ -370,6 +441,10 @@ pub fn execute_tool(request: &ToolRequest) -> ToolResult {
     if !workspace.exists() {
         let _ = std::fs::create_dir_all(&workspace);
     }
+
+    let workspace = workspace
+        .canonicalize()
+        .unwrap_or(workspace);
 
     match request.name.as_str() {
         "bash" | "Bash" => tool_bash(&request.args, &workspace),

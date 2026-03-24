@@ -35,6 +35,16 @@ impl Default for AppConfig {
 
 /// 供应商配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderModelConfig {
+    pub id: String,
+    pub name: String,
+    pub enabled: bool,
+    #[serde(rename = "isCustom", default)]
+    pub is_custom: bool,
+}
+
+/// 供应商配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderConfig {
     pub id: String,
     pub name: String,
@@ -46,6 +56,8 @@ pub struct ProviderConfig {
     pub endpoint_type: String,
     #[serde(default)]
     pub is_custom: bool,
+    #[serde(default)]
+    pub models: Vec<ProviderModelConfig>,
 }
 
 /// 配置管理器
