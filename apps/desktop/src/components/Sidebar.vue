@@ -313,14 +313,14 @@ function toggleCollapse() {
 }
 
 function newChat() {
-  chatStore.createConversation()
+  const id = chatStore.createConversation()
   activeTab.value = 'chat'
-  router.push('/chat')
+  router.push(`/chat/${id}`)
 }
 
 async function openChat(chatId: string) {
   await chatStore.loadConversation(chatId)
-  router.push('/chat')
+  router.push(`/chat/${chatId}`)
 }
 
 async function deleteChat(chatId: string) {

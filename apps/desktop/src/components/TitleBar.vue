@@ -91,7 +91,7 @@ function addTab() {
   const convId = chatStore.createConversation()
   const tabId = tabStore.addTab('/chat', '新对话')
   tabConvMap.value[tabId] = convId
-  router.push('/chat')
+  router.push(`/chat/${convId}`)
 }
 
 /** 关闭 Tab：不删除对话，只移除标签页 */
@@ -107,7 +107,7 @@ function closeTab(tabId: string) {
     const convId = nextTab ? tabConvMap.value[nextTab.id] : null
     if (convId) {
       chatStore.loadConversation(convId)
-      router.push('/chat')
+      router.push(`/chat/${convId}`)
     }
   }
 }
@@ -119,7 +119,7 @@ async function switchTab(tabId: string) {
   const convId = tabConvMap.value[tabId]
   if (convId) {
     await chatStore.loadConversation(convId)
-    router.push('/chat')
+    router.push(`/chat/${convId}`)
   }
 }
 

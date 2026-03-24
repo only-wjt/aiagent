@@ -217,6 +217,7 @@
 
 <script setup lang="ts">
 import { ref, nextTick, onMounted, onUnmounted, computed, inject, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useSidecar } from '../composables/useSidecar'
 import { useConfigStore } from '../stores/configStore'
 import { useChatStore, type ChatMessage } from '../stores/chatStore'
@@ -226,6 +227,8 @@ import { apiFetch } from '../utils/http'
 import { MessageSquare, Trash2, Plus, Bot, User, Copy, RotateCcw, Edit2, StopCircle, Download, ImageIcon } from 'lucide-vue-next'
 
 const { ensureSidecar, releaseSidecar, getBaseUrl } = useSidecar()
+const route = useRoute()
+const router = useRouter()
 const configStore = useConfigStore()
 const chatStore = useChatStore()
 const skillStore = useSkillStore()
@@ -361,11 +364,28 @@ onUnmounted(() => {
   document.removeEventListener('keydown', handleKeyDown)
 })
 
+async function syncChatSessionFromRoute() {
+  const sessionId = route.params.sessionId as string | undefined
+  if (isStreaming.value && sessionId !== chatStore.currentConversationId) {
+    stopStreaming()
+  }
+  if (sessionId && chatStore.currentConversationId !== sessionId) {
+    await chatStore.loadConversation(sessionId)
+  }
+  if (!chatStore.currentProviderId && selectedProvider.value?.id) {
+    currentProviderId.value = selectedProvider.value.id
+  }
+}
+
 watch(() => chatStore.currentConversationId, (nextId, prevId) => {
   if (prevId && prevId !== nextId) {
     void releaseActiveSidecarSession(prevId)
   }
 })
+
+watch(() => route.params.sessionId, () => {
+  void syncChatSessionFromRoute()
+}, { immediate: true })
 
 function clearChat() {
   if (isStreaming.value) stopStreaming()
@@ -374,7 +394,12 @@ function clearChat() {
 
 function newChat() {
   clearChat()
-  chatStore.createConversation(currentModel.value, undefined, selectedProvider.value?.id || currentProviderId.value || undefined)
+  const sessionId = chatStore.createConversation(
+    currentModel.value,
+    undefined,
+    selectedProvider.value?.id || currentProviderId.value || undefined,
+  )
+  router.push(`/chat/${sessionId}`)
   inputText.value = ''
   textareaRef.value?.focus()
 }
@@ -392,11 +417,131 @@ function getMessageText(msg: ChatMessage): string {
     .join('')
 }
 
-function buildDirectHistoryMessages() {
+type OpenAIContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } }
+
+type AnthropicContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
+
+type SidecarHistoryMessage = {
+  role: ChatMessage['role']
+  content: string | AnthropicContentPart[]
+}
+
+type ResponsesContentPart =
+  | { type: 'input_text'; text: string }
+  | { type: 'input_image'; image_url: string }
+
+function parseImageDataUrl(url: string): { mediaType: string; data: string } | null {
+  const match = url.match(/^data:([^;]+);base64,(.+)$/)
+  if (!match) return null
+  return { mediaType: match[1], data: match[2] }
+}
+
+function buildOpenAIMessageContent(blocks: ChatMessage['content']): string | OpenAIContentPart[] {
+  const hasImages = blocks.some(block => block.type === 'image_url' && !!block.image_url?.url)
+  if (!hasImages) {
+    return blocks
+      .filter(block => block.type === 'text')
+      .map(block => block.text || '')
+      .join('')
+  }
+
+  const parts: OpenAIContentPart[] = []
+  for (const block of blocks) {
+    if (block.type === 'text' && block.text) {
+      parts.push({ type: 'text', text: block.text })
+    } else if (block.type === 'image_url' && block.image_url?.url) {
+      parts.push({ type: 'image_url', image_url: { url: block.image_url.url } })
+    }
+  }
+  return parts
+}
+
+function buildAnthropicMessageContent(blocks: ChatMessage['content']): string | AnthropicContentPart[] {
+  const hasImages = blocks.some(block => block.type === 'image_url' && !!block.image_url?.url)
+  if (!hasImages) {
+    return blocks
+      .filter(block => block.type === 'text')
+      .map(block => block.text || '')
+      .join('')
+  }
+
+  const parts: AnthropicContentPart[] = []
+  for (const block of blocks) {
+    if (block.type === 'text' && block.text) {
+      parts.push({ type: 'text', text: block.text })
+    } else if (block.type === 'image_url' && block.image_url?.url) {
+      const image = parseImageDataUrl(block.image_url.url)
+      if (image) {
+        parts.push({
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: image.mediaType,
+            data: image.data,
+          },
+        })
+      }
+    }
+  }
+  return parts
+}
+
+function buildResponsesMessageContent(blocks: ChatMessage['content']): string | ResponsesContentPart[] {
+  const hasImages = blocks.some(block => block.type === 'image_url' && !!block.image_url?.url)
+  if (!hasImages) {
+    return blocks
+      .filter(block => block.type === 'text')
+      .map(block => block.text || '')
+      .join('')
+  }
+
+  const parts: ResponsesContentPart[] = []
+  for (const block of blocks) {
+    if (block.type === 'text' && block.text) {
+      parts.push({ type: 'input_text', text: block.text })
+    } else if (block.type === 'image_url' && block.image_url?.url) {
+      parts.push({ type: 'input_image', image_url: block.image_url.url })
+    }
+  }
+  return parts
+}
+
+function buildOpenAIHistoryMessages() {
   return chatStore.messages.map(m => ({
     role: m.role,
-    content: m.content.filter(b => b.type === 'text').map(b => b.text || '').join(''),
+    content: buildOpenAIMessageContent(m.content),
   }))
+}
+
+function buildAnthropicHistoryMessages() {
+  return chatStore.messages.map(m => ({
+    role: m.role,
+    content: buildAnthropicMessageContent(m.content),
+  }))
+}
+
+function buildSidecarHistoryMessages(): SidecarHistoryMessage[] {
+  return chatStore.messages.slice(0, -1).map(m => ({
+    role: m.role,
+    content: buildAnthropicMessageContent(m.content),
+  }))
+}
+
+function buildResponsesInputMessages() {
+  return chatStore.messages.map(m => ({
+    role: m.role,
+    content: buildResponsesMessageContent(m.content),
+  }))
+}
+
+function buildCurrentSidecarMessageContent() {
+  const lastUserMessage = [...chatStore.messages].reverse().find(m => m.role === 'user')
+  if (!lastUserMessage) return ''
+  return buildAnthropicMessageContent(lastUserMessage.content)
 }
 
 // 安全 Markdown 渲染（先转义 HTML，再应用格式）
@@ -466,7 +611,12 @@ async function sendMessage() {
 
   // 如果还没有当前对话，创建一个
   if (!chatStore.currentConversationId) {
-    chatStore.createConversation(currentModel.value, undefined, provider?.id || currentProviderId.value || undefined)
+    const sessionId = chatStore.createConversation(
+      currentModel.value,
+      undefined,
+      provider?.id || currentProviderId.value || undefined,
+    )
+    router.replace(`/chat/${sessionId}`)
   }
 
   // 构建 content 数组（支持图片）
@@ -533,6 +683,8 @@ async function streamFromSidecar(prompt: string, apiKey: string, baseUrl?: strin
   const sessionId = activeSidecarSessionId.value
   await ensureActiveSidecarSession(sessionId)
   const sidecarUrl = getBaseUrl()
+  const messageContent = buildCurrentSidecarMessageContent()
+  const historyMessages = buildSidecarHistoryMessages()
 
   currentAbortController = new AbortController()
   const response = await fetch(`${sidecarUrl}/api/chat/stream`, {
@@ -546,6 +698,8 @@ async function streamFromSidecar(prompt: string, apiKey: string, baseUrl?: strin
       baseUrl,
       endpointType,
       skillPrompt: skillStore.combinedSkillPrompt,
+      messageContent,
+      historyMessages,
     }),
     signal: currentAbortController.signal,
   })
@@ -623,7 +777,7 @@ async function streamFromOpenAI(_prompt: string, apiKey: string, baseUrl: string
   const url = `${baseUrl.replace(/\/+$/, '')}/v1/chat/completions`
 
   // 构建消息历史
-  const historyMessages = buildDirectHistoryMessages()
+  const historyMessages = buildOpenAIHistoryMessages()
 
   // 添加 system prompt（技能注入）
   const systemMessages: Array<{role: string; content: string}> = []
@@ -701,7 +855,7 @@ async function streamFromAnthropic(_prompt: string, apiKey: string, baseUrl: str
   const url = `${baseUrl.replace(/\/+$/, '')}/v1/messages`
 
   // 构建消息历史
-  const historyMessages = buildDirectHistoryMessages()
+  const historyMessages = buildAnthropicHistoryMessages()
 
   // System prompt
   const systemPrompt = skillStore.combinedSkillPrompt || undefined
@@ -774,7 +928,7 @@ async function streamFromOpenAIResponses(_prompt: string, apiKey: string, baseUr
   const url = `${baseUrl.replace(/\/+$/, '')}/v1/responses`
 
   // 构建输入：Responses API 使用 input 字段（支持字符串或消息数组）
-  const historyMessages = buildDirectHistoryMessages()
+  const historyMessages = buildResponsesInputMessages()
 
   // 构建 input 消息数组
   const inputMessages = historyMessages

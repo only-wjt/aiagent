@@ -257,6 +257,13 @@ pub struct ContentBlock {
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_url: Option<ImageUrlBlock>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageUrlBlock {
+    pub url: String,
 }
 
 /// 完整对话（存储到文件）

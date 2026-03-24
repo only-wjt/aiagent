@@ -16,6 +16,7 @@ export interface ContentBlock {
   name?: string
   id?: string
   input?: Record<string, unknown>
+  image_url?: { url: string }
 }
 
 /** 对话消息 */
@@ -163,7 +164,7 @@ export const useChatStore = defineStore('chat', () => {
         created_at: string; updated_at: string;
         messages: Array<{
           id: string; role: string;
-          content: Array<{ type: string; text?: string; name?: string; id?: string }>;
+          content: Array<{ type: string; text?: string; name?: string; id?: string; image_url?: { url: string } }>;
           created_at: string; usage?: string;
         }>;
       }
@@ -233,6 +234,7 @@ export const useChatStore = defineStore('chat', () => {
             text: b.text || null,
             name: b.name || null,
             id: b.id || null,
+            image_url: b.image_url || null,
           })),
           created_at: m.createdAt,
           usage: m.usage || null,

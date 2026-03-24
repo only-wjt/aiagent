@@ -13,6 +13,7 @@ import { OpenAIAdapter } from '../src/adapters/openai'
 import { GeminiAdapter } from '../src/adapters/gemini'
 import { getAdapter, registerAdapter } from '../src/adapters/registry'
 import { createStreamContext, type AnthropicRequest } from '../src/adapters/types'
+import { AgentSession } from '../src/agent/client'
 
 // ==================== 测试数据 ====================
 
@@ -435,6 +436,40 @@ describe('StreamContext', () => {
     expect(ctx.outputTokens).toBe(0)
     expect(ctx.model).toBe('test-model')
     expect(ctx.messageId).toMatch(/^msg_/)
+  })
+})
+
+describe('AgentSession history', () => {
+  test('setMessages 会覆盖旧历史并保留滑动窗口', () => {
+    const session = new AgentSession({
+      apiKey: 'sk-test-key',
+      model: 'claude-sonnet-4-20250514',
+    })
+
+    const history = Array.from({ length: 52 }, (_, index) => ({
+      role: index % 2 === 0 ? 'user' : 'assistant',
+      content: `message-${index}`,
+    }))
+
+    session.setMessages(history)
+
+    const messages = session.getMessages()
+    expect(messages.length).toBe(50)
+    expect(messages[0]).toEqual({ role: 'user', content: 'message-2' })
+    expect(messages.at(-1)).toEqual({ role: 'assistant', content: 'message-51' })
+  })
+
+  test('setMessages 传入空数组时会清空旧缓存', () => {
+    const session = new AgentSession({
+      apiKey: 'sk-test-key',
+      model: 'claude-sonnet-4-20250514',
+    })
+
+    session.setMessages([{ role: 'user', content: 'hello' }])
+    expect(session.getMessages()).toHaveLength(1)
+
+    session.setMessages([])
+    expect(session.getMessages()).toEqual([])
   })
 })
 
