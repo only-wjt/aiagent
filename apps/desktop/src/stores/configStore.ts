@@ -9,15 +9,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { PROVIDER_TEMPLATES, type ProviderStatus } from '@aiagent/shared'
 import { apiFetch } from '../utils/http'
-
-// 尝试导入 Tauri API
-let invoke: ((cmd: string, args?: Record<string, unknown>) => Promise<unknown>) | null = null
-try {
-  const tauri = await import('@tauri-apps/api/core')
-  invoke = tauri.invoke
-} catch {
-  console.warn('[ConfigStore] Tauri API 不可用，使用 localStorage 回退')
-}
+import { getTauriInvoke } from '../utils/tauri'
 
 /** 模型信息（前端视图） */
 export interface ModelView {
@@ -101,6 +93,7 @@ export const useConfigStore = defineStore('config', () => {
 
   /** 加载供应商列表（全走 Tauri IPC） */
   async function loadProviders () {
+    const invoke = await getTauriInvoke()
     if (!invoke) {
       console.warn('[ConfigStore] Tauri 不可用，无法加载供应商配置')
       return
@@ -109,6 +102,7 @@ export const useConfigStore = defineStore('config', () => {
       const saved = await invoke('cmd_get_providers') as Array<{
         id: string; name: string; base_url: string; api_key: string;
         is_default: boolean; enabled: boolean; endpoint_type: string; is_custom?: boolean;
+        models?: ModelView[];
       }>
       if (saved.length > 0) {
         providers.value = saved.map(p => {
@@ -134,9 +128,9 @@ export const useConfigStore = defineStore('config', () => {
 
   /** 保存供应商配置（全走 Tauri IPC） */
   async function saveProviders () {
+    const invoke = await getTauriInvoke()
     if (!invoke) {
-      console.warn('[ConfigStore] Tauri 不可用，无法保存供应商配置')
-      return
+      throw new Error('请在桌面应用中使用此功能，浏览器环境无法保存配置')
     }
     try {
       await invoke('cmd_save_providers', {
@@ -154,6 +148,7 @@ export const useConfigStore = defineStore('config', () => {
       })
     } catch (e) {
       console.error('[ConfigStore] 保存供应商到 Tauri 失败:', e)
+      throw e
     }
   }
 
@@ -224,6 +219,7 @@ export const useConfigStore = defineStore('config', () => {
 
   /** 加载应用配置 */
   async function loadAppConfig () {
+    const invoke = await getTauriInvoke()
     if (invoke) {
       try {
         const config = await invoke('cmd_get_app_config') as {
@@ -245,6 +241,7 @@ export const useConfigStore = defineStore('config', () => {
 
   /** 保存应用配置 */
   async function saveAppConfig () {
+    const invoke = await getTauriInvoke()
     if (invoke) {
       try {
         await invoke('cmd_save_app_config', {
@@ -258,6 +255,7 @@ export const useConfigStore = defineStore('config', () => {
         })
       } catch (e) {
         console.error('[ConfigStore] 保存应用配置失败:', e)
+        throw e
       }
     }
   }
@@ -292,6 +290,15 @@ export const useConfigStore = defineStore('config', () => {
         if (resp.ok) {
           const json = await resp.json()
           modelIds = (json.data || []).map((m: any) => m.id).sort()
+        }
+      } else if (endpointType === 'gemini') {
+        const resp = await apiFetch(`${base}/v1beta/models?key=${provider.apiKey}`)
+        if (resp.ok) {
+          const json = await resp.json()
+          modelIds = (json.models || [])
+            .map((m: any) => String(m.name || '').replace(/^models\//, ''))
+            .filter(Boolean)
+            .sort()
         }
       }
     } catch (e) {
@@ -358,6 +365,22 @@ export const useConfigStore = defineStore('config', () => {
     return result
   }
 
+  /** 根据模型 ID 找到所属供应商 */
+  function findProviderByModel (modelId: string, providerId?: string): ProviderView | undefined {
+    if (providerId) {
+      const preferred = providers.value.find(p =>
+        p.id === providerId
+        && !!p.apiKey
+        && p.models.some(m => m.enabled && m.id === modelId)
+      )
+      if (preferred) return preferred
+    }
+
+    const model = allEnabledModels().find(m => m.id === modelId)
+    if (!model) return undefined
+    return providers.value.find(p => p.id === model.providerId)
+  }
+
   return {
     providers,
     appConfig,
@@ -375,5 +398,6 @@ export const useConfigStore = defineStore('config', () => {
     toggleModel,
     removeModel,
     allEnabledModels,
+    findProviderByModel,
   }
 })

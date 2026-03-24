@@ -54,6 +54,11 @@ export const useTabStore = defineStore('tab', () => {
     if (tab) tab.title = title
   }
 
+  function updateTabRoute(id: string, route: string) {
+    const tab = tabs.value.find(t => t.id === id)
+    if (tab) tab.route = route
+  }
+
   function openChatTab(title = '新对话'): string {
     // 复用已有的 chat tab（如果当前 active 就是 chat）
     const existing = tabs.value.find(t => t.route === '/chat' && t.id !== 'home')
@@ -72,6 +77,7 @@ export const useTabStore = defineStore('tab', () => {
     closeTab,
     activateTab,
     updateTabTitle,
+    updateTabRoute,
     openChatTab,
   }
 })

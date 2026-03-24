@@ -46,12 +46,13 @@
 
 <script setup lang="ts">
 import { ref, watch, onMounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { Bot, Plus, X, Settings, Minus, Square } from 'lucide-vue-next'
 import { useChatStore } from '../stores/chatStore'
 import { useTabStore } from '../stores/tabStore'
 
 const router = useRouter()
+const route = useRoute()
 const chatStore = useChatStore()
 const tabStore = useTabStore()
 
@@ -89,9 +90,9 @@ const activeTabId = computed({
 /** 新建 Tab：创建新对话并切换 */
 function addTab() {
   const convId = chatStore.createConversation()
-  const tabId = tabStore.addTab('/chat', '新对话')
+  const tabId = tabStore.addTab(`/chat/${convId}`, '新对话')
   tabConvMap.value[tabId] = convId
-  router.push('/chat')
+  router.push(`/chat/${convId}`)
 }
 
 /** 关闭 Tab：不删除对话，只移除标签页 */
@@ -106,8 +107,10 @@ function closeTab(tabId: string) {
     const nextTab = tabStore.activeTab
     const convId = nextTab ? tabConvMap.value[nextTab.id] : null
     if (convId) {
-      chatStore.loadConversation(convId)
-      router.push('/chat')
+      void chatStore.loadConversation(convId)
+      router.push(nextTab?.route || `/chat/${convId}`)
+    } else if (nextTab?.route) {
+      router.push(nextTab.route)
     }
   }
 }
@@ -116,27 +119,33 @@ function closeTab(tabId: string) {
 async function switchTab(tabId: string) {
   if (tabStore.activeTabId === tabId) return
   tabStore.activateTab(tabId)
+  const nextTab = tabStore.tabs.find(tab => tab.id === tabId)
   const convId = tabConvMap.value[tabId]
   if (convId) {
     await chatStore.loadConversation(convId)
-    router.push('/chat')
+    router.push(nextTab?.route || `/chat/${convId}`)
+  } else if (nextTab?.route) {
+    router.push(nextTab.route)
   }
 }
 
 /** 监听 chatStore 当前对话变化（侧边栏切换时同步 Tab） */
 watch(() => chatStore.currentConversationId, (newId) => {
   if (!newId) return
+  const currentRoute = route.path.startsWith('/agent') ? `/agent/${newId}` : `/chat/${newId}`
   // 检查是否已有 Tab 关联该对话
   const existingTabId = Object.entries(tabConvMap.value).find(([, cid]) => cid === newId)?.[0]
   if (existingTabId) {
     tabStore.activateTab(existingTabId)
+    tabStore.updateTabRoute(existingTabId, currentRoute)
   } else {
     // 如果当前活跃 Tab 没有关联对话，则关联上
     const curId = tabStore.activeTabId
     if (curId && !tabConvMap.value[curId]) {
       tabConvMap.value[curId] = newId
+      tabStore.updateTabRoute(curId, currentRoute)
     } else {
-      const tabId = tabStore.addTab('/chat', '新对话')
+      const tabId = tabStore.addTab(currentRoute, '新对话')
       tabConvMap.value[tabId] = newId
     }
   }
@@ -150,6 +159,14 @@ watch(() => chatStore.currentConversation?.title, (newTitle) => {
     tabStore.updateTabTitle(curId, newTitle.length > 15 ? newTitle.slice(0, 15) + '…' : newTitle)
   }
 })
+
+watch(() => route.fullPath, (path) => {
+  if (!path.startsWith('/chat/') && !path.startsWith('/agent/')) return
+  const curId = tabStore.activeTabId
+  if (curId) {
+    tabStore.updateTabRoute(curId, path)
+  }
+}, { immediate: true })
 
 // 窗口控制
 async function minimizeWindow() {

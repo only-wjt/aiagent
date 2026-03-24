@@ -6,15 +6,7 @@
 
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-
-// 尝试导入 Tauri API
-let invoke: ((cmd: string, args?: Record<string, unknown>) => Promise<unknown>) | null = null
-try {
-  const tauri = await import('@tauri-apps/api/core')
-  invoke = tauri.invoke
-} catch {
-  console.warn('[WorkspaceStore] Tauri API 不可用')
-}
+import { getTauriInvoke } from '../utils/tauri'
 
 /** 工作区定义 */
 export interface Workspace {
@@ -34,6 +26,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   async function load () {
+    const invoke = await getTauriInvoke()
     if (!invoke) return
     try {
       const json = await invoke('cmd_read_json', { filename: 'workspaces.json' }) as string
@@ -49,7 +42,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   async function save () {
-    if (!invoke) return
+    const invoke = await getTauriInvoke()
+    if (!invoke) {
+      throw new Error('Tauri not available')
+    }
     try {
       await invoke('cmd_write_json', {
         filename: 'workspaces.json',
@@ -57,6 +53,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       })
     } catch (e) {
       console.error('[WorkspaceStore] 保存失败:', e)
+      throw e
     }
   }
 

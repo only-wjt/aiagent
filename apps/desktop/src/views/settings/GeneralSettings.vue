@@ -58,7 +58,7 @@
         </div>
         <div class="path-field">
           <input class="input path-input" v-model="appConfig.defaultWorkspacePath" @change="saveConfig" />
-          <button class="btn btn-ghost btn-icon-sm" title="选择目录">📂</button>
+          <button class="btn btn-ghost btn-icon-sm" title="恢复为默认路径" @click="resetWorkspacePath">↺</button>
         </div>
       </div>
 
@@ -119,14 +119,28 @@
         <button class="btn btn-danger btn-sm" @click="resetAll">重置</button>
       </div>
     </div>
+
+    <div v-if="showResetDialog" class="modal-overlay" @click.self="showResetDialog = false">
+      <div class="reset-modal card">
+        <h3 class="group-title">确认重置</h3>
+        <p class="reset-hint">这会恢复主题、语言、默认工作目录、Sidecar 起始端口和开机自启设置。</p>
+        <div class="reset-actions">
+          <button class="btn btn-ghost" @click="showResetDialog = false">取消</button>
+          <button class="btn btn-danger" @click="confirmResetAll">确认重置</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { inject, ref } from 'vue'
 import { useConfigStore } from '../../stores/configStore'
 
 const configStore = useConfigStore()
 const appConfig = configStore.appConfig
+const showResetDialog = ref(false)
+const showToast = inject<(message: string, type?: 'success' | 'error' | 'info') => void>('showToast', () => {})
 
 const themeOptions = [
   { value: 'system', label: '跟随系统', icon: '💻' },
@@ -157,18 +171,32 @@ function setLocale(value: string) {
 }
 
 async function saveConfig() {
-  await configStore.saveAppConfig()
+  try {
+    await configStore.saveAppConfig()
+    showToast('设置已保存', 'success')
+  } catch (error) {
+    console.error('[GeneralSettings] 保存设置失败:', error)
+    showToast('设置保存失败', 'error')
+  }
 }
 
 function resetAll() {
-  if (confirm('确定要重置所有设置吗？此操作不可撤销。')) {
-    appConfig.theme = 'system'
-    appConfig.locale = 'zh-CN'
-    appConfig.defaultWorkspacePath = '~'
-    appConfig.sidecarPortStart = 31415
-    appConfig.autoStart = false
-    saveConfig()
-  }
+  showResetDialog.value = true
+}
+
+function resetWorkspacePath() {
+  appConfig.defaultWorkspacePath = '~'
+  void saveConfig()
+}
+
+function confirmResetAll() {
+  appConfig.theme = 'system'
+  appConfig.locale = 'zh-CN'
+  appConfig.defaultWorkspacePath = '~'
+  appConfig.sidecarPortStart = 31415
+  appConfig.autoStart = false
+  showResetDialog.value = false
+  void saveConfig()
 }
 </script>
 
@@ -272,4 +300,33 @@ function resetAll() {
 .danger-zone { border-color: rgba(255, 77, 79, 0.2); }
 .danger-zone .group-title { color: var(--color-error); }
 .btn-sm { padding: 4px 12px; font-size: var(--font-size-xs); }
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.reset-modal {
+  width: min(420px, calc(100vw - 32px));
+  padding: var(--space-xl);
+}
+
+.reset-hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  line-height: 1.6;
+}
+
+.reset-actions {
+  margin-top: var(--space-lg);
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+}
 </style>

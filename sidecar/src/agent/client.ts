@@ -11,6 +11,8 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { MessageParam, ContentBlock } from '@anthropic-ai/sdk/resources/messages'
 
+type AgentInputContent = MessageParam['content']
+
 /** 会话配置 */
 export interface AgentSessionConfig {
   /** API Key */
@@ -97,7 +99,7 @@ export class AgentSession {
 
   /** 发送消息并获取流式响应 */
   async sendMessage (
-    userMessage: string,
+    userMessage: AgentInputContent,
     callbacks: StreamCallbacks
   ): Promise<void> {
     // 添加用户消息到历史
@@ -181,6 +183,12 @@ export class AgentSession {
   /** 获取当前消息历史 */
   getMessages (): MessageParam[] {
     return [...this.messages]
+  }
+
+  /** 用外部历史覆盖当前消息历史 */
+  setMessages (messages: MessageParam[]): void {
+    this.messages = [...messages]
+    this.trimHistory()
   }
 
   /** 截断历史消息，保留最近 N 条（滑动窗口） */

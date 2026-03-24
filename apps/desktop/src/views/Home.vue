@@ -17,7 +17,7 @@
           <div class="quick-input-actions">
             <div class="model-picker-wrapper">
               <span class="model-badge" @click="showModelPicker = !showModelPicker">
-                {{ selectedModel || '选择模型' }} ▾
+                {{ selectedModelLabel }} ▾
               </span>
               <div v-if="showModelPicker" class="model-dropdown card">
                 <div v-if="availableModels.length === 0" class="model-option" style="opacity:0.5;cursor:default">
@@ -25,10 +25,10 @@
                 </div>
                 <div
                   v-for="m in availableModels"
-                  :key="m.id"
+                  :key="m.id + '-' + m.providerId"
                   class="model-option"
-                  :class="{ active: selectedModel === m.id }"
-                  @click="selectedModel = m.id; showModelPicker = false"
+                  :class="{ active: selectedModel === m.id && selectedProviderId === m.providerId }"
+                  @click="selectModel(m.id, m.providerId)"
                 >
                   <span class="model-option-name">{{ m.name }}</span>
                   <span class="model-option-desc">{{ m.providerName }}</span>
@@ -74,7 +74,7 @@
           <div class="workspace-icon"><Bot :size="24" stroke-width="1.5" /></div>
           <div class="workspace-info">
             <h3 class="workspace-name">默认工作区</h3>
-            <p class="workspace-path">~/Documents/aiagent</p>
+            <p class="workspace-path">{{ defaultWorkspacePath }}</p>
           </div>
         </div>
 
@@ -124,7 +124,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, inject } from 'vue'
 import { useRouter } from 'vue-router'
 import { useChatStore } from '../stores/chatStore'
 import { useConfigStore } from '../stores/configStore'
@@ -135,6 +135,7 @@ const router = useRouter()
 const chatStore = useChatStore()
 const configStore = useConfigStore()
 const workspaceStore = useWorkspaceStore()
+const showToast = inject<(message: string, type?: 'success' | 'error' | 'info') => void>('showToast', () => {})
 const quickPrompt = ref('')
 const showNewWorkspace = ref(false)
 const newWs = reactive({ name: '', path: '' })
@@ -142,22 +143,39 @@ const newWs = reactive({ name: '', path: '' })
 // 可用模型列表（只显示用户勾选启用的模型）
 const availableModels = computed(() => configStore.allEnabledModels())
 const selectedModel = ref(chatStore.currentModel)
+const selectedProviderId = ref(chatStore.currentProviderId)
 const showModelPicker = ref(false)
+const selectedModelLabel = computed(() => {
+  const selected = availableModels.value.find(m =>
+    m.id === selectedModel.value && m.providerId === selectedProviderId.value
+  )
+  return selected?.name || selectedModel.value || '选择模型'
+})
+const defaultWorkspacePath = computed(() => configStore.appConfig.defaultWorkspacePath || '~')
 
 // 最近 5 个对话（不再使用）
 // const recentConversations = computed(() => chatStore.conversations.slice(0, 5))
 
 function startChat() {
   const prompt = quickPrompt.value.trim()
-  if (!prompt) {
-    router.push('/chat')
-    return
+  const sessionId = chatStore.createConversation(
+    selectedModel.value,
+    undefined,
+    selectedProviderId.value || undefined,
+  )
+  if (prompt) {
+    sessionStorage.setItem('quickPrompt', prompt)
+  } else {
+    sessionStorage.removeItem('quickPrompt')
   }
-  // 设置选择的模型
-  chatStore.currentModel = selectedModel.value
-  sessionStorage.setItem('quickPrompt', prompt)
   quickPrompt.value = ''
-  router.push('/chat')
+  router.push(`/chat/${sessionId}`)
+}
+
+function selectModel(modelId: string, providerId: string) {
+  selectedModel.value = modelId
+  selectedProviderId.value = providerId
+  showModelPicker.value = false
 }
 
 function quickAction(prompt: string) {
@@ -166,15 +184,36 @@ function quickAction(prompt: string) {
 }
 
 async function createWorkspace() {
-  if (!newWs.name.trim()) return
-  await workspaceStore.addWorkspace(newWs.name, newWs.path)
-  newWs.name = ''
-  newWs.path = ''
-  showNewWorkspace.value = false
+  const name = newWs.name.trim()
+  const path = newWs.path.trim() || '~'
+  if (!name) return
+  if (workspaceStore.workspaces.some(ws => ws.name.trim().toLowerCase() === name.toLowerCase())) {
+    showToast('工作区名称已存在', 'error')
+    return
+  }
+  if (workspaceStore.workspaces.some(ws => ws.path.trim() === path)) {
+    showToast('该路径已被其他工作区使用', 'error')
+    return
+  }
+  try {
+    await workspaceStore.addWorkspace(name, path)
+    newWs.name = ''
+    newWs.path = ''
+    showNewWorkspace.value = false
+    showToast('工作区已创建', 'success')
+  } catch (error) {
+    console.error('[Home] 创建工作区失败:', error)
+    showToast('工作区创建失败', 'error')
+  }
 }
 
-function openWorkspace(_id: string) {
-  router.push('/chat')
+function openWorkspace(id: string) {
+  chatStore.currentModel = selectedModel.value
+  chatStore.currentProviderId = selectedProviderId.value
+  const existingSession = chatStore.conversations.find(c => c.workspaceId === id)
+  const sessionId = existingSession?.id
+    || chatStore.createConversation(selectedModel.value, id, selectedProviderId.value || undefined)
+  router.push(`/agent/${sessionId}`)
 }
 </script>
 

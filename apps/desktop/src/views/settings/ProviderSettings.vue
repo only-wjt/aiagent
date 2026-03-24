@@ -210,11 +210,25 @@
         </div>
       </div>
     </div>
+
+    <div v-if="deleteDialog.visible" class="modal-overlay" @click.self="closeDeleteDialog">
+      <div class="modal card confirm-modal">
+        <h3 class="modal-title">删除供应商</h3>
+        <p class="modal-hint">删除后将移除该供应商的 API Key 和模型配置。此操作不可撤销。</p>
+        <div class="confirm-provider-name">{{ deleteDialog.providerName }}</div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" :disabled="deleteDialog.loading" @click="closeDeleteDialog">取消</button>
+          <button class="btn btn-danger" :disabled="deleteDialog.loading" @click="confirmRemoveProvider">
+            {{ deleteDialog.loading ? '删除中...' : '确认删除' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, inject } from 'vue'
 import { useConfigStore } from '../../stores/configStore'
 import { apiFetch } from '../../utils/http'
 import type { ProviderStatus } from '@aiagent/shared'
@@ -227,6 +241,8 @@ const testingId = ref<string | null>(null)
 const testResults = reactive<Record<string, 'success' | 'error'>>({})
 const showAddModal = ref(false)
 const editingProviderId = ref<string | null>(null)
+const deleteDialog = reactive({ visible: false, providerId: '', providerName: '', loading: false })
+const showToast = inject<(message: string, type?: 'success' | 'error' | 'info') => void>('showToast', () => {})
 
 
 const endpointTypes = ['anthropic', 'openai-compatible', 'openai-responses', 'gemini']
@@ -282,8 +298,21 @@ function getActualEndpoint(baseUrl: string, endpointType?: string): string {
 }
 
 async function onApiKeyChange(providerId: string, value: string) {
-  await configStore.updateProviderApiKey(providerId, value.trim())
-  delete testResults[providerId]
+  const provider = providers.find(p => p.id === providerId)
+  if (!provider) return
+
+  const previousKey = provider.apiKey
+  const previousStatus = provider.status
+
+  try {
+    await configStore.updateProviderApiKey(providerId, value.trim())
+    delete testResults[providerId]
+    showToast('API Key 已保存', 'success')
+  } catch (e: any) {
+    provider.apiKey = previousKey
+    provider.status = previousStatus
+    showToast(e.message || '保存 API Key 失败', 'error')
+  }
 }
 
 async function testConnection(providerId: string) {
@@ -292,16 +321,28 @@ async function testConnection(providerId: string) {
   try {
     const ok = await configStore.testProviderConnection(providerId)
     testResults[providerId] = ok ? 'success' : 'error'
-  } catch {
+    showToast(ok ? '连接测试通过' : '连接测试失败，请检查配置', ok ? 'success' : 'error')
+  } catch (e: any) {
     testResults[providerId] = 'error'
+    showToast(e.message || '测试连接失败', 'error')
   } finally {
     testingId.value = null
   }
 }
 
 async function setDefault(providerId: string) {
+  const previousDefaults = providers.map(p => ({ id: p.id, isDefault: p.isDefault }))
   configStore.providers.forEach(p => p.isDefault = p.id === providerId)
-  await configStore.saveProviders()
+  try {
+    await configStore.saveProviders()
+    showToast('已更新默认供应商', 'success')
+  } catch (e: any) {
+    previousDefaults.forEach(prev => {
+      const provider = providers.find(p => p.id === prev.id)
+      if (provider) provider.isDefault = prev.isDefault
+    })
+    showToast(e.message || '设置默认供应商失败', 'error')
+  }
 }
 
 function applyPreset(p: { name: string; baseUrl: string; endpointType: string }) {
@@ -315,17 +356,30 @@ async function fetchModalModels() {
   fetchingModalModels.value = true
   try {
     const base = form.baseUrl.replace(/\/+$/, '')
-    const headers: Record<string, string> = form.endpointType === 'anthropic'
-      ? { 'x-api-key': form.apiKey, 'anthropic-version': '2023-06-01' }
-      : { 'Authorization': `Bearer ${form.apiKey}` }
-    const resp = await apiFetch(`${base}/v1/models`, { headers })
+    let resp: Response
+
+    if (form.endpointType === 'gemini') {
+      resp = await apiFetch(`${base}/v1beta/models?key=${form.apiKey}`)
+    } else {
+      const headers: Record<string, string> = form.endpointType === 'anthropic'
+        ? { 'x-api-key': form.apiKey, 'anthropic-version': '2023-06-01' }
+        : { 'Authorization': `Bearer ${form.apiKey}` }
+      resp = await apiFetch(`${base}/v1/models`, { headers })
+    }
+
     if (resp.ok) {
       const json = await resp.json()
-      const modelIds = (json.data || []).map((m: any) => m.id as string).sort()
+      const modelIds = form.endpointType === 'gemini'
+        ? (json.models || []).map((m: any) => String(m.name || '').replace(/^models\//, '')).filter(Boolean).sort()
+        : (json.data || []).map((m: any) => m.id as string).sort()
       form.models = modelIds.map((id: string) => ({ id, name: id, enabled: true }))
+      showToast(`已加载 ${modelIds.length} 个模型`, 'success')
+    } else {
+      showToast(`获取模型失败: ${resp.status}`, 'error')
     }
   } catch (e) {
     console.error('获取模型失败:', e)
+    showToast('获取模型失败，请检查 Base URL 和 API Key', 'error')
   } finally {
     fetchingModalModels.value = false
   }
@@ -373,8 +427,13 @@ async function saveEditedProvider() {
   provider.apiKey = form.apiKey.trim()
   provider.status = form.apiKey.trim() ? 'active' : 'unconfigured'
   provider.models = form.models.map(m => ({ id: m.id, name: m.name, enabled: m.enabled, isCustom: m.isCustom }))
-  await configStore.saveProviders()
-  closeModal()
+  try {
+    await configStore.saveProviders()
+    showToast('供应商已保存', 'success')
+    closeModal()
+  } catch (e: any) {
+    showToast(e.message || '保存失败', 'error')
+  }
 }
 
 async function addProvider() {
@@ -391,22 +450,59 @@ async function addProvider() {
     models: form.models.map(m => ({ id: m.id, name: m.name, enabled: m.enabled, isCustom: m.isCustom })),
   }
   providers.push(newProvider as any)
-  await configStore.saveProviders()
-  closeModal()
+  try {
+    await configStore.saveProviders()
+    showToast('供应商已添加', 'success')
+    closeModal()
+  } catch (e: any) {
+    providers.pop()
+    showToast(e.message || '保存失败', 'error')
+  }
 }
 
-async function removeCustomProvider(id: string) {
-  const idx = providers.findIndex(p => p.id === id)
-  if (idx === -1) return
+function removeCustomProvider(id: string) {
+  const provider = providers.find(p => p.id === id)
+  if (!provider) return
+  if (!provider.isCustom) return
+  if (provider.isDefault) {
+    showToast('请先将默认供应商切换为其他供应商，再删除', 'info')
+    return
+  }
+
+  deleteDialog.visible = true
+  deleteDialog.providerId = provider.id
+  deleteDialog.providerName = provider.name
+}
+
+function closeDeleteDialog() {
+  if (deleteDialog.loading) return
+  deleteDialog.visible = false
+  deleteDialog.providerId = ''
+  deleteDialog.providerName = ''
+}
+
+async function confirmRemoveProvider() {
+  const idx = providers.findIndex(p => p.id === deleteDialog.providerId)
+  if (idx === -1) {
+    closeDeleteDialog()
+    return
+  }
 
   const provider = providers[idx]
-  if (!provider.isCustom) return
-  if (provider.isDefault) return
-
+  deleteDialog.loading = true
   providers.splice(idx, 1)
-  delete testResults[id]
-  delete showKey[id]
-  await configStore.saveProviders()
+  delete testResults[provider.id]
+  delete showKey[provider.id]
+  try {
+    await configStore.saveProviders()
+    showToast('供应商已删除', 'success')
+    closeDeleteDialog()
+  } catch (e: any) {
+    providers.splice(idx, 0, provider)
+    showToast(e.message || '删除失败', 'error')
+  } finally {
+    deleteDialog.loading = false
+  }
 }
 
 
@@ -501,6 +597,19 @@ async function removeCustomProvider(id: string) {
 .segment-btn.active { background: var(--color-primary); color: var(--color-text-inverse); font-weight: 500; }
 
 .modal-actions { display: flex; justify-content: flex-end; gap: var(--space-sm); margin-top: var(--space-lg); }
+
+.confirm-modal {
+  width: min(420px, calc(100vw - 32px));
+}
+
+.confirm-provider-name {
+  margin-top: var(--space-md);
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
 
 
 .models-header-modal { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }

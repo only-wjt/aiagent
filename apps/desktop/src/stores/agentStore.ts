@@ -13,15 +13,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { apiFetch } from '../utils/http'
 import { useConfigStore } from './configStore'
-
-// 尝试导入 Tauri API
-let invoke: ((cmd: string, args?: Record<string, unknown>) => Promise<unknown>) | null = null
-try {
-  const tauri = await import('@tauri-apps/api/core')
-  invoke = tauri.invoke
-} catch {
-  console.warn('[AgentStore] Tauri API 不可用')
-}
+import { getTauriInvoke } from '../utils/tauri'
 
 /** Agent 消息类型 */
 export interface AgentMessage {
@@ -170,12 +162,23 @@ export const TOOL_META: Record<string, { icon: string; label: string }> = {
 /** 权限模式类型 */
 export type PermissionMode = 'action' | 'plan' | 'autonomous'
 
+const DEFAULT_ENABLED_TOOLS: Record<string, boolean> = {
+  bash: true,
+  read_file: true,
+  write_file: true,
+  edit_file: true,
+  list_dir: true,
+  glob: true,
+  grep: true,
+}
+
 export const useAgentStore = defineStore('agent', () => {
   // ==================== 状态 ====================
   const messages = ref<AgentMessage[]>([])
   const isProcessing = ref(false)
   const currentWorkspace = ref('')
   const currentModel = ref('')
+  const currentProviderId = ref<string | null>(null)
   const permissionMode = ref<PermissionMode>('autonomous')
   const abortController = ref<AbortController | null>(null)
   /** 当前正在流式输出的消息 ID（用于 UI 显示打字光标） */
@@ -183,14 +186,29 @@ export const useAgentStore = defineStore('agent', () => {
   /** 流式更新计数器（每次变化触发 UI 滚动） */
   const updateTick = ref(0)
   /** 工具启用状态 */
-  const enabledTools = ref<Record<string, boolean>>({
-    bash: true, read_file: true, write_file: true, edit_file: true,
-    list_dir: true, glob: true, grep: true,
-  })
+  const enabledTools = ref<Record<string, boolean>>({ ...DEFAULT_ENABLED_TOOLS })
   /** 待确认的工具调用 */
   const pendingToolCall = ref<{ toolCall: ToolCall; messageId: string } | null>(null)
   /** 用户确认/拒绝的Promise resolve */
   let confirmResolve: ((approved: boolean) => void) | null = null
+
+  async function waitForSidecarReady (baseUrl: string, retries: number = 8, delayMs: number = 250): Promise<boolean> {
+    for (let attempt = 0; attempt < retries; attempt++) {
+      const healthCheck = await fetch(`${baseUrl}/health`, {
+        signal: AbortSignal.timeout(1000),
+      }).catch(() => null)
+
+      if (healthCheck?.ok) {
+        return true
+      }
+
+      if (attempt < retries - 1) {
+        await new Promise(resolve => setTimeout(resolve, delayMs))
+      }
+    }
+
+    return false
+  }
 
   /** 构建分层 System Prompt */
   function buildSystemPrompt(): string {
@@ -251,6 +269,7 @@ export const useAgentStore = defineStore('agent', () => {
 
   /** 在 Tauri 后端执行工具 */
   async function executeTool(name: string, args: Record<string, unknown>): Promise<{ success: boolean; output: string; error?: string }> {
+    const invoke = await getTauriInvoke()
     if (!invoke) {
       return { success: false, output: '', error: 'Tauri 不可用' }
     }
@@ -314,11 +333,10 @@ export const useAgentStore = defineStore('agent', () => {
     const configStore = useConfigStore()
 
     // 根据当前模型找到所属 provider
-    const allModels = configStore.allEnabledModels()
-    const modelInfo = allModels.find(m => m.id === currentModel.value)
-    const provider = modelInfo
-      ? configStore.providers.find(p => p.id === modelInfo.providerId)
-      : configStore.defaultProvider
+    const provider = configStore.findProviderByModel(currentModel.value, currentProviderId.value || undefined) || configStore.defaultProvider
+    if (provider?.id && currentProviderId.value !== provider.id) {
+      currentProviderId.value = provider.id
+    }
     if (!provider || !provider.apiKey) {
       messages.value.push({
         id: crypto.randomUUID(),
@@ -404,10 +422,22 @@ export const useAgentStore = defineStore('agent', () => {
 
           if (endpointType === 'gemini') {
             // 通过 sidecar proxy 转换：发送 Anthropic 格式，sidecar 转为 Gemini 原生格式
-            const port = invoke
-              ? await (invoke('cmd_get_session_port', { sessionId: 'default' }) as Promise<number | null>).catch(() => null)
-              : null
+            const invoke = await getTauriInvoke()
+            let port: number | null = null
+            if (invoke) {
+              const workspacePath = currentWorkspace.value || '~'
+              port = await (invoke('cmd_ensure_session_sidecar', {
+                sessionId: 'agent-default',
+                workspacePath,
+                ownerType: 'agent',
+                ownerId: 'default-agent',
+              }) as Promise<{ port: number }>).then((sidecar) => sidecar.port).catch(() => null)
+            }
             const proxyBase = port ? `http://localhost:${port}` : 'http://localhost:3700'
+            const sidecarReady = await waitForSidecarReady(proxyBase)
+            if (!sidecarReady) {
+              throw new Error('Gemini Sidecar 未就绪，请稍后重试')
+            }
             url = `${proxyBase}/proxy/v1/messages`
             reqHeaders['x-target-provider'] = 'gemini'
             reqHeaders['x-target-baseurl'] = baseUrl
@@ -709,19 +739,41 @@ export const useAgentStore = defineStore('agent', () => {
     messages.value = []
   }
 
+  /** 用持久化会话内容替换当前消息 */
+  function replaceMessages(nextMessages: AgentMessage[]) {
+    messages.value = nextMessages
+  }
+
   /** 设置工作区 */
   function setWorkspace(path: string) {
     currentWorkspace.value = path
   }
 
   /** 设置模型 */
-  function setModel(model: string) {
+  function setModel(model: string, providerId?: string | null) {
     currentModel.value = model
+    currentProviderId.value = providerId ?? null
   }
 
   /** 设置权限模式 */
   function setPermissionMode(mode: PermissionMode) {
     permissionMode.value = mode
+  }
+
+  /** 设置单个工具开关 */
+  function setEnabledTool(name: string, enabled: boolean) {
+    enabledTools.value = {
+      ...enabledTools.value,
+      [name]: enabled,
+    }
+  }
+
+  /** 用会话配置覆盖工具开关，未提供的项回落到默认值 */
+  function setEnabledTools(nextTools?: Record<string, boolean> | null) {
+    enabledTools.value = {
+      ...DEFAULT_ENABLED_TOOLS,
+      ...(nextTools || {}),
+    }
   }
 
   /** 获取启用的工具列表（过滤禁用的） */
@@ -743,6 +795,7 @@ export const useAgentStore = defineStore('agent', () => {
     isProcessing,
     currentWorkspace,
     currentModel,
+    currentProviderId,
     permissionMode,
     streamingMsgId,
     updateTick,
@@ -751,9 +804,12 @@ export const useAgentStore = defineStore('agent', () => {
     sendMessage,
     stopProcessing,
     clearMessages,
+    replaceMessages,
     setWorkspace,
     setModel,
     setPermissionMode,
+    setEnabledTool,
+    setEnabledTools,
     approveToolCall,
     rejectToolCall,
     AGENT_TOOLS,

@@ -8,7 +8,7 @@
         <span class="ws-path-label">{{ agentStore.currentWorkspace }}</span>
       </div>
       <div class="agent-actions">
-        <button class="btn btn-sm btn-ghost" @click="agentStore.clearMessages()" title="清空">
+        <button class="btn btn-sm btn-ghost" @click="requestClearMessages" title="清空">
           <Trash2 :size="14" /> 清空
         </button>
       </div>
@@ -201,7 +201,7 @@
                     </div>
                   </div>
                   <label class="toggle-switch">
-                    <input type="checkbox" :checked="agentStore.enabledTools[key as string] !== false" @change="agentStore.enabledTools[key as string] = ($event.target as HTMLInputElement).checked" />
+                    <input type="checkbox" :checked="agentStore.enabledTools[key as string] !== false" @change="agentStore.setEnabledTool(key as string, ($event.target as HTMLInputElement).checked)" />
                     <span class="toggle-slider"></span>
                   </label>
                 </div>
@@ -221,10 +221,10 @@
               </div>
               <div
                 v-for="m in availableModels"
-                :key="m.id"
+                :key="m.id + '-' + m.providerId"
                 class="model-option"
-                :class="{ active: agentStore.currentModel === m.id }"
-                @click="agentStore.setModel(m.id); showModelPicker = false"
+                :class="{ active: agentStore.currentModel === m.id && agentStore.currentProviderId === m.providerId }"
+                @click="agentStore.setModel(m.id, m.providerId); showModelPicker = false"
               >
                 <span class="model-option-name">{{ m.name }}</span>
                 <span class="model-option-desc">{{ m.providerName }}</span>
@@ -236,13 +236,25 @@
       <!-- 点击外部关闭弹窗 -->
       <div v-if="showModeMenu || showToolMenu" class="popup-overlay" @click="showModeMenu = false; showToolMenu = false"></div>
     </div>
+    <div v-if="showClearDialog" class="confirm-overlay" @click.self="showClearDialog = false">
+      <div class="confirm-modal card">
+        <h3 class="confirm-title">清空当前 Agent 会话</h3>
+        <p class="confirm-desc">会清除当前 Agent 会话中的消息记录，并立即同步到本地持久化数据。</p>
+        <div class="confirm-actions">
+          <button class="btn btn-ghost" @click="showClearDialog = false">取消</button>
+          <button class="btn btn-danger" @click="confirmClearMessages">确认清空</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { ref, computed, nextTick, watch, inject } from 'vue'
+import { useRoute } from 'vue-router'
 import { useAgentStore, TOOL_META, type PermissionMode } from '../stores/agentStore'
 import { renderMarkdown } from '../utils/markdown'
+import { useChatStore, type PersistedToolCall } from '../stores/chatStore'
 import { useConfigStore } from '../stores/configStore'
 import { useWorkspaceStore } from '../stores/workspaceStore'
 import {
@@ -252,8 +264,10 @@ import {
 } from 'lucide-vue-next'
 
 const agentStore = useAgentStore()
+const chatStore = useChatStore()
 const configStore = useConfigStore()
 const workspaceStore = useWorkspaceStore()
+const route = useRoute()
 
 const inputText = ref('')
 const showModelPicker = ref(false)
@@ -261,6 +275,9 @@ const showModeMenu = ref(false)
 const showToolMenu = ref(false)
 const messagesContainer = ref<HTMLElement>()
 const inputRef = ref<HTMLTextAreaElement>()
+const hydratingPersistedSession = ref(false)
+const showClearDialog = ref(false)
+const showToast = inject<(message: string, type?: 'success' | 'error' | 'info') => void>('showToast', () => {})
 
 // 会话模式配置
 const modeConfig: Record<PermissionMode, { label: string; desc: string; icon: any; color: string }> = {
@@ -282,7 +299,9 @@ const toolDescriptions: Record<string, string> = {
 
 // 工作区名称
 const workspaceName = computed(() => {
-  const ws = workspaceStore.workspaces.find(w => w.id === 'default')
+  const workspaceId = chatStore.currentConversation?.workspaceId
+  if (!workspaceId || workspaceId === 'default') return '默认工作区'
+  const ws = workspaceStore.workspaces.find(w => w.id === workspaceId)
   return ws?.name || '默认工作区'
 })
 
@@ -327,6 +346,18 @@ function handleSend(e?: Event) {
   agentStore.sendMessage(text)
 }
 
+function requestClearMessages() {
+  if (agentStore.messages.length === 0) return
+  showClearDialog.value = true
+}
+
+function confirmClearMessages() {
+  agentStore.clearMessages()
+  showClearDialog.value = false
+  syncAgentMessagesToChatStore()
+  showToast('Agent 会话已清空', 'success')
+}
+
 // 自动调整输入框高度
 function autoResize() {
   if (inputRef.value) {
@@ -347,17 +378,130 @@ function scrollToBottom() {
 watch(() => agentStore.messages.length, scrollToBottom)
 watch(() => agentStore.updateTick, scrollToBottom)
 
-// 初始化
-onMounted(async () => {
-  const ws = workspaceStore.workspaces.find(w => w.id === 'default')
-  if (ws) {
-    agentStore.setWorkspace(ws.path)
+function syncAgentMessagesToChatStore() {
+  if (hydratingPersistedSession.value) return
+  const sessionId = route.params.sessionId as string | undefined
+  if (!sessionId || chatStore.currentConversationId !== sessionId) return
+
+  syncAgentSessionSettingsToChatStore(false)
+  chatStore.currentModel = agentStore.currentModel
+  chatStore.messages = agentStore.messages.map(m => ({
+    id: m.id,
+    role: m.role,
+    content: m.content ? [{ type: 'text', text: m.content }] : [],
+    createdAt: m.createdAt,
+    model: m.role === 'assistant' ? agentStore.currentModel : undefined,
+    thinking: m.thinking,
+    thinkingDuration: m.thinkingDuration,
+    toolCalls: m.toolCalls?.map(tc => ({
+      ...tc,
+      args: { ...tc.args },
+    })) as PersistedToolCall[] | undefined,
+    toolCallId: m.toolCallId,
+    toolName: m.toolName,
+  }))
+  void chatStore.saveCurrentConversation()
+}
+
+function syncAgentSessionSettingsToChatStore(shouldSave: boolean = true) {
+  if (hydratingPersistedSession.value) return
+  const sessionId = route.params.sessionId as string | undefined
+  if (!sessionId || chatStore.currentConversationId !== sessionId) return
+
+  chatStore.currentModel = agentStore.currentModel
+  chatStore.currentProviderId = agentStore.currentProviderId
+  chatStore.currentAgentMode = agentStore.permissionMode
+  chatStore.currentEnabledTools = { ...agentStore.enabledTools }
+
+  if (shouldSave) {
+    void chatStore.saveCurrentConversation()
   }
-  const models = configStore.allEnabledModels()
-  if (models.length > 0 && !agentStore.currentModel) {
-    agentStore.setModel(models[0].id)
+}
+
+watch(() => agentStore.isProcessing, (isProcessing, wasProcessing) => {
+  if (wasProcessing && !isProcessing) {
+    syncAgentMessagesToChatStore()
   }
 })
+
+watch(() => agentStore.messages.length, () => {
+  if (!agentStore.isProcessing) {
+    syncAgentMessagesToChatStore()
+  }
+})
+
+function resolveWorkspacePath(workspaceId?: string) {
+  if (!workspaceId || workspaceId === 'default') {
+    return configStore.appConfig.defaultWorkspacePath || '~'
+  }
+  return workspaceStore.workspaces.find(w => w.id === workspaceId)?.path || configStore.appConfig.defaultWorkspacePath || '~'
+}
+
+async function syncAgentSessionFromRoute() {
+  const sessionId = route.params.sessionId as string | undefined
+  if (agentStore.isProcessing) {
+    agentStore.stopProcessing()
+  }
+  if (sessionId && chatStore.currentConversationId !== sessionId) {
+    await chatStore.loadConversation(sessionId)
+  }
+
+  hydratingPersistedSession.value = true
+  try {
+    agentStore.setWorkspace(resolveWorkspacePath(chatStore.currentConversation?.workspaceId))
+    agentStore.replaceMessages(chatStore.messages.map(m => ({
+      id: m.id,
+      role: m.role,
+      content: m.content
+        .filter(block => block.type === 'text')
+        .map(block => block.text || '')
+        .join(''),
+      createdAt: m.createdAt,
+      thinking: m.thinking,
+      thinkingDuration: m.thinkingDuration,
+      toolCalls: m.toolCalls?.map(tc => ({
+        ...tc,
+        args: { ...tc.args },
+      })),
+      toolCallId: m.toolCallId,
+      toolName: m.toolName,
+    })))
+
+    agentStore.setPermissionMode(chatStore.currentAgentMode || 'autonomous')
+    agentStore.setEnabledTools(chatStore.currentEnabledTools)
+
+    if (chatStore.currentModel) {
+      agentStore.setModel(chatStore.currentModel, chatStore.currentProviderId)
+    } else {
+      const models = configStore.allEnabledModels()
+      if (models.length > 0 && !agentStore.currentModel) {
+        agentStore.setModel(models[0].id, models[0].providerId)
+      }
+    }
+  } finally {
+    hydratingPersistedSession.value = false
+  }
+}
+
+watch(() => route.params.sessionId, () => {
+  void syncAgentSessionFromRoute()
+}, { immediate: true })
+
+watch(() => agentStore.currentModel, () => {
+  syncAgentSessionSettingsToChatStore()
+})
+
+watch(() => agentStore.currentProviderId, () => {
+  syncAgentSessionSettingsToChatStore()
+})
+
+watch(() => agentStore.permissionMode, () => {
+  syncAgentSessionSettingsToChatStore()
+})
+
+watch(() => agentStore.enabledTools, () => {
+  syncAgentSessionSettingsToChatStore()
+}, { deep: true })
 </script>
 
 <style scoped>
@@ -875,6 +1019,52 @@ onMounted(async () => {
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
   z-index: 150;
+}
+
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(2px);
+}
+
+.confirm-modal {
+  width: min(420px, calc(100vw - 32px));
+  padding: var(--space-xl);
+}
+
+.confirm-title {
+  margin: 0 0 var(--space-sm);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.confirm-desc {
+  margin: 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  margin-top: var(--space-lg);
+}
+
+.btn-danger {
+  background: var(--color-error);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  padding: 6px 12px;
 }
 
 /* 弹窗动画 */

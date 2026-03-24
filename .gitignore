@@ -38,3 +38,11 @@ sidecar/sidecar-binary*
 .bitfun
 .claude
 AGENTS.md
+.conductor
+AGENTS.md
+CLAUDE.md
+CODE_REVIEW.md
+IMPLEMENTATION_SUMMARY.md
+
+# ai中间产物文件夹
+aidoc/

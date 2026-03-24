@@ -3,9 +3,9 @@
 //! Rust 层代理所有 SSE 流量，统一转发到前端，
 //! 解决 WebView CORS 问题，并实现 Tab 级别事件隔离。
 
-use futures_util::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, State};
@@ -45,6 +45,18 @@ pub struct SseEventPayload {
     pub data: String,
 }
 
+fn emit_sse_event(app: &AppHandle, tab_id: &str, event_type: &str, data: String) {
+    let event_name = format!("sse:{}:{}", tab_id, event_type);
+    let _ = app.emit(
+        &event_name,
+        SseEventPayload {
+            tab_id: tab_id.to_string(),
+            event_type: event_type.to_string(),
+            data,
+        },
+    );
+}
+
 /// 开始 SSE 代理连接
 #[tauri::command]
 pub async fn cmd_start_sse_proxy(
@@ -68,61 +80,77 @@ pub async fn cmd_start_sse_proxy(
     }
 
     // 构建 SSE URL
-    let url = format!(
-        "http://localhost:{}/api/chat/stream?sessionId={}",
-        port, session_id
-    );
+    let url = format!("http://localhost:{}/api/chat/stream", port);
 
     // 发起 SSE 连接
-    let response = sse_state
+    let request_body =
+        serde_json::to_string(&json!({ "sessionId": session_id })).map_err(|e| e.to_string())?;
+
+    let mut response = sse_state
         .client
-        .get(&url)
+        .post(&url)
+        .header("Content-Type", "application/json")
+        .body(request_body)
         .send()
         .await
         .map_err(|e| format!("SSE 连接失败: {}", e))?;
 
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_body = response.text().await.unwrap_or_default();
+        emit_sse_event(
+            &app,
+            &tab_id,
+            "error",
+            format!("SSE 连接失败: {} {}", status, error_body),
+        );
+
+        if let Ok(mut connections) = sse_state.connections.lock() {
+            connections.remove(&tab_id);
+        }
+
+        return Err(format!("SSE 连接失败: {}", status));
+    }
+
     // 流式读取并转发到前端
-    let mut stream = response.bytes_stream();
     let mut buffer = String::new();
 
-    while let Some(chunk) = stream.next().await {
-        match chunk {
-            Ok(bytes) => {
-                buffer.push_str(&String::from_utf8_lossy(&bytes));
+    loop {
+        let chunk = match response.chunk().await {
+            Ok(chunk) => chunk,
+            Err(e) => {
+                emit_sse_event(&app, &tab_id, "error", e.to_string());
+                break;
+            }
+        };
 
-                // 解析 SSE 事件（以 \n\n 分割）
-                while let Some(pos) = buffer.find("\n\n") {
-                    let event_str = buffer[..pos].to_string();
-                    buffer = buffer[pos + 2..].to_string();
+        let Some(bytes) = chunk else {
+            break;
+        };
 
-                    // 提取 data: 行
-                    for line in event_str.lines() {
-                        if let Some(data) = line.strip_prefix("data: ") {
-                            let event_name = format!("sse:{}:message", tab_id);
-                            let _ = app.emit(
-                                &event_name,
-                                SseEventPayload {
-                                    tab_id: tab_id.clone(),
-                                    event_type: "message".to_string(),
-                                    data: data.to_string(),
-                                },
-                            );
-                        }
-                    }
+        let chunk_text = String::from_utf8_lossy(bytes.as_ref())
+            .replace("\r\n", "\n")
+            .replace('\r', "\n");
+        buffer.push_str(&chunk_text);
+
+        // 解析 SSE 事件（以 \n\n 分割）
+        while let Some(pos) = buffer.find("\n\n") {
+            let event_str = buffer[..pos].to_string();
+            buffer = buffer[pos + 2..].to_string();
+
+            let mut event_type = "message".to_string();
+            let mut data_lines = Vec::new();
+
+            for line in event_str.lines() {
+                if let Some(event) = line.strip_prefix("event:") {
+                    event_type = event.trim().to_string();
+                } else if let Some(data) = line.strip_prefix("data:") {
+                    data_lines.push(data.trim_start().to_string());
                 }
             }
-            Err(e) => {
-                // 连接断开，通知前端
-                let event_name = format!("sse:{}:error", tab_id);
-                let _ = app.emit(
-                    &event_name,
-                    SseEventPayload {
-                        tab_id: tab_id.clone(),
-                        event_type: "error".to_string(),
-                        data: e.to_string(),
-                    },
-                );
-                break;
+
+            if !data_lines.is_empty() {
+                emit_sse_event(&app, &tab_id, &event_type, data_lines.join("\n"));
             }
         }
 

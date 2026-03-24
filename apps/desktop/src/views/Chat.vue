@@ -10,6 +10,9 @@
         <button class="btn btn-ghost btn-sm btn-flex" @click="exportToMarkdown" :disabled="messages.length === 0" title="导出为 Markdown">
           <Download :size="14" /> 导出
         </button>
+        <button class="btn btn-ghost btn-sm btn-flex" @click="forkCurrentConversation" :disabled="messages.length === 0" title="分叉当前对话">
+          <GitBranch :size="14" /> 分叉
+        </button>
         <button class="btn btn-ghost btn-sm btn-flex" @click="clearChat" :disabled="messages.length === 0 && !isStreaming">
           <Trash2 :size="14" /> 清空
         </button>
@@ -58,6 +61,7 @@
             </div>
             <!-- 悬浮操作栏 -->
             <div class="msg-actions">
+              <button class="msg-action-btn" @click="forkConversationAt(idx)" title="从此处分叉"><GitBranch :size="14" /></button>
               <button class="msg-action-btn" @click="regenerateMessage(idx)" title="重新生成"><RotateCcw :size="14" /></button>
               <button class="msg-action-btn" @click="copyMessage(msg)" title="复制"><Copy :size="14" /></button>
               <button class="msg-action-btn" @click="deleteMessage(idx)" title="删除"><Trash2 :size="14" /></button>
@@ -66,7 +70,7 @@
         </template>
 
         <!-- 用户消息：右侧 -->
-        <template v-else>
+        <template v-else-if="msg.role === 'user'">
           <div class="message-content-wrap">
             <div class="message-header message-header-right">
               <span v-if="msg.usage" class="message-token-info">{{ msg.usage }}</span>
@@ -86,12 +90,31 @@
             </div>
             <!-- 悬浮操作栏 -->
             <div class="msg-actions msg-actions-right">
+              <button class="msg-action-btn" @click="forkConversationAt(idx)" title="从此处分叉"><GitBranch :size="14" /></button>
               <button class="msg-action-btn" @click="editMessage(idx)" title="编辑"><Edit2 :size="14" /></button>
               <button class="msg-action-btn" @click="copyMessage(msg)" title="复制"><Copy :size="14" /></button>
               <button class="msg-action-btn" @click="deleteMessage(idx)" title="删除"><Trash2 :size="14" /></button>
             </div>
           </div>
           <div class="message-avatar user-avatar"><User :size="20" stroke-width="1.5" /></div>
+        </template>
+
+        <!-- 工具消息：中性展示，避免误当作用户消息 -->
+        <template v-else>
+          <div class="message-avatar"><Bot :size="20" stroke-width="1.5" /></div>
+          <div class="message-content-wrap">
+            <div class="message-header">
+              <span class="message-sender">{{ msg.toolName || '工具输出' }}</span>
+              <span class="message-timestamp">{{ formatTime(msg.createdAt) }}</span>
+            </div>
+            <div class="message-bubble bubble-assistant">
+              <div class="message-body">
+                <template v-for="(block, bi) in msg.content" :key="bi">
+                  <div v-if="block.type === 'text'" v-html="renderMarkdown(block.text || '')"></div>
+                </template>
+              </div>
+            </div>
+          </div>
         </template>
       </div>
 
@@ -129,6 +152,10 @@
     <!-- 输入区域 -->
     <div class="chat-input-area">
       <div class="chat-input-container" :class="{ focused: isFocused }">
+        <div v-if="editingMessageId" class="edit-banner">
+          <span class="edit-banner-text">正在编辑历史消息，发送后会从该消息开始重写后续对话</span>
+          <button class="edit-banner-btn" @click="cancelEditingMessage">取消</button>
+        </div>
         <!-- 图片预览 -->
         <div v-if="pendingImages.length > 0" class="image-preview-row">
           <div v-for="(img, i) in pendingImages" :key="i" class="image-preview-item">
@@ -168,8 +195,8 @@
                   v-for="m in availableModels"
                   :key="m.id + '-' + m.providerId"
                   class="model-option"
-                  :class="{ active: currentModel === m.id }"
-                  @click="selectModel(m.id)"
+                  :class="{ active: currentModel === m.id && currentProviderId === m.providerId }"
+                  @click="selectModel(m.id, m.providerId)"
                 >
                   <span class="model-option-name">{{ m.name }}</span>
                   <span class="model-option-desc">{{ m.providerName }}</span>
@@ -216,16 +243,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, onMounted, onUnmounted, computed, inject } from 'vue'
+import { ref, nextTick, onMounted, onUnmounted, computed, inject, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useSidecar } from '../composables/useSidecar'
 import { useConfigStore } from '../stores/configStore'
 import { useChatStore, type ChatMessage } from '../stores/chatStore'
 import { useSkillStore } from '../stores/skillStore'
 import { useAgentStore } from '../stores/agentStore'
 import { apiFetch } from '../utils/http'
-import { MessageSquare, Trash2, Plus, Bot, User, Copy, RotateCcw, Edit2, StopCircle, Download, ImageIcon } from 'lucide-vue-next'
+import { renderMarkdown } from '../utils/markdown'
+import { MessageSquare, Trash2, Plus, Bot, User, Copy, RotateCcw, Edit2, StopCircle, Download, ImageIcon, GitBranch } from 'lucide-vue-next'
 
-const { getBaseUrl } = useSidecar()
+const { ensureSidecar, releaseSidecar, getBaseUrl } = useSidecar()
+const route = useRoute()
+const router = useRouter()
 const configStore = useConfigStore()
 const chatStore = useChatStore()
 const skillStore = useSkillStore()
@@ -243,8 +274,13 @@ const currentModel = computed({
   get: () => chatStore.currentModel,
   set: (v) => { chatStore.currentModel = v },
 })
+const currentProviderId = computed({
+  get: () => chatStore.currentProviderId,
+  set: (v) => { chatStore.currentProviderId = v },
+})
 
 const inputText = ref('')
+const editingMessageId = ref<string | null>(null)
 const isStreaming = ref(false)
 const streamingText = ref('')
 const streamingUsage = ref('')
@@ -256,6 +292,8 @@ const showScrollBtn = ref(false)
 const pendingImages = ref<string[]>([])
 const imageInputRef = ref<HTMLInputElement | null>(null)
 let currentAbortController: AbortController | null = null
+const sidecarOwnerId = `chat-${crypto.randomUUID()}`
+const attachedSidecarSessionId = ref<string | null>(null)
 
 // 工具执行确认
 const pendingToolCall = computed(() => agentStore.pendingToolCall)
@@ -283,6 +321,11 @@ function rejectPendingTool() {
 const availableModels = computed(() => {
   return configStore.allEnabledModels()
 })
+const selectedProvider = computed(() => {
+  return configStore.findProviderByModel(currentModel.value, currentProviderId.value || undefined) || configStore.defaultProvider
+})
+const activeSidecarSessionId = computed(() => chatStore.currentConversationId || 'default')
+const activeWorkspacePath = computed(() => configStore.appConfig.defaultWorkspacePath || '~')
 
 function modelDisplayName(id: string) {
   const m = availableModels.value.find(m => m.id === id)
@@ -291,8 +334,9 @@ function modelDisplayName(id: string) {
   return id.length > 25 ? id.slice(0, 22) + '…' : id
 }
 
-function selectModel(id: string) {
+function selectModel(id: string, providerId: string) {
   currentModel.value = id
+  currentProviderId.value = providerId
   showModelPicker.value = false
 }
 
@@ -315,6 +359,30 @@ function handleKeyDown(e: KeyboardEvent) {
   }
 }
 
+async function ensureActiveSidecarSession(sessionId: string = activeSidecarSessionId.value) {
+  if (attachedSidecarSessionId.value && attachedSidecarSessionId.value !== sessionId) {
+    await releaseActiveSidecarSession(attachedSidecarSessionId.value)
+  }
+
+  const connection = await ensureSidecar(sessionId, activeWorkspacePath.value, sidecarOwnerId)
+  attachedSidecarSessionId.value = connection.sessionId
+  return connection
+}
+
+async function releaseActiveSidecarSession(sessionId: string | null = attachedSidecarSessionId.value) {
+  if (!sessionId) return
+
+  try {
+    await releaseSidecar(sessionId, sidecarOwnerId)
+  } catch (error) {
+    console.warn('[Chat] 释放 Sidecar 失败:', error)
+  } finally {
+    if (attachedSidecarSessionId.value === sessionId) {
+      attachedSidecarSessionId.value = null
+    }
+  }
+}
+
 onMounted(() => {
   document.addEventListener('click', handleGlobalClick)
   document.addEventListener('keydown', handleKeyDown)
@@ -325,22 +393,60 @@ onUnmounted(() => {
   document.removeEventListener('keydown', handleKeyDown)
 })
 
+async function syncChatSessionFromRoute() {
+  const sessionId = route.params.sessionId as string | undefined
+  if (isStreaming.value && sessionId !== chatStore.currentConversationId) {
+    stopStreaming()
+  }
+  if (sessionId !== chatStore.currentConversationId) {
+    editingMessageId.value = null
+  }
+  if (sessionId && chatStore.currentConversationId !== sessionId) {
+    await chatStore.loadConversation(sessionId)
+  }
+  if (!chatStore.currentProviderId && selectedProvider.value?.id) {
+    currentProviderId.value = selectedProvider.value.id
+  }
+}
+
+watch(() => chatStore.currentConversationId, (nextId, prevId) => {
+  if (prevId && prevId !== nextId) {
+    void releaseActiveSidecarSession(prevId)
+  }
+})
+
+watch(() => route.params.sessionId, () => {
+  void syncChatSessionFromRoute()
+}, { immediate: true })
+
 function clearChat() {
   if (isStreaming.value) stopStreaming()
   chatStore.clearCurrentMessages()
+  editingMessageId.value = null
+  void chatStore.saveCurrentConversation()
 }
 
 function newChat() {
   clearChat()
-  chatStore.createConversation()
+  const sessionId = chatStore.createConversation(
+    currentModel.value,
+    undefined,
+    selectedProvider.value?.id || currentProviderId.value || undefined,
+  )
+  router.push(`/chat/${sessionId}`)
   inputText.value = ''
+  editingMessageId.value = null
   textareaRef.value?.focus()
 }
 
 // 检查是否有可用的 API Key
 const hasApiKey = computed(() => {
-  return !!configStore.defaultProvider?.apiKey
+  return !!selectedProvider.value?.apiKey
 })
+
+function isUserOrAssistantMessage(msg: ChatMessage): msg is ChatMessage & { role: 'user' | 'assistant' } {
+  return msg.role === 'user' || msg.role === 'assistant'
+}
 
 // 获取消息文本
 function getMessageText(msg: ChatMessage): string {
@@ -350,58 +456,140 @@ function getMessageText(msg: ChatMessage): string {
     .join('')
 }
 
-// 安全 Markdown 渲染（先转义 HTML，再应用格式）
-function renderMarkdown(text: string): string {
-  if (!text) return ''
+type OpenAIContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } }
 
-  // 1. 提取代码块，替换为占位符（避免转义）
-  const codeBlocks: string[] = []
-  let processed = text.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
-    const escaped = code.trim()
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-    codeBlocks.push(`<pre class="code-block"><div class="code-block-header"><span class="code-lang">${lang || 'code'}</span><button class="code-copy-btn" onclick="(function(btn){var code=btn.closest('.code-block').querySelector('code').innerText;navigator.clipboard.writeText(code);btn.textContent='✅ 已复制';setTimeout(function(){btn.textContent='📋 复制'},1500)})(this)">📋 复制</button></div><code class="language-${lang || 'text'}">${escaped}</code></pre>`)
-    return `\x00CB${codeBlocks.length - 1}\x00`
-  })
+type AnthropicContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
 
-  // 2. 转义 HTML（安全）
-  processed = processed
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
+type SidecarHistoryMessage = {
+  role: 'user' | 'assistant'
+  content: string | AnthropicContentPart[]
+}
 
-  // 3. 行内代码
-  processed = processed.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
+type ResponsesContentPart =
+  | { type: 'input_text'; text: string }
+  | { type: 'input_image'; image_url: string }
 
-  // 4. 粗体 / 斜体
-  processed = processed.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-  processed = processed.replace(/\*(.+?)\*/g, '<em>$1</em>')
+function parseImageDataUrl(url: string): { mediaType: string; data: string } | null {
+  const match = url.match(/^data:([^;]+);base64,(.+)$/)
+  if (!match) return null
+  return { mediaType: match[1], data: match[2] }
+}
 
-  // 5. 标题
-  processed = processed.replace(/^####\s+(.+)$/gm, '<h4>$1</h4>')
-  processed = processed.replace(/^###\s+(.+)$/gm, '<h3>$1</h3>')
-  processed = processed.replace(/^##\s+(.+)$/gm, '<h2>$1</h2>')
-  processed = processed.replace(/^#\s+(.+)$/gm, '<h1>$1</h1>')
+function buildOpenAIMessageContent(blocks: ChatMessage['content']): string | OpenAIContentPart[] {
+  const hasImages = blocks.some(block => block.type === 'image_url' && !!block.image_url?.url)
+  if (!hasImages) {
+    return blocks
+      .filter(block => block.type === 'text')
+      .map(block => block.text || '')
+      .join('')
+  }
 
-  // 6. 有序列表
-  processed = processed.replace(/^\d+\.\s+(.+)$/gm, '<li>$1</li>')
+  const parts: OpenAIContentPart[] = []
+  for (const block of blocks) {
+    if (block.type === 'text' && block.text) {
+      parts.push({ type: 'text', text: block.text })
+    } else if (block.type === 'image_url' && block.image_url?.url) {
+      parts.push({ type: 'image_url', image_url: { url: block.image_url.url } })
+    }
+  }
+  return parts
+}
 
-  // 7. 无序列表
-  processed = processed.replace(/^[•\-\*]\s+(.+)$/gm, '<li>$1</li>')
-  processed = processed.replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>')
-  processed = processed.replace(/<\/ul>\s*<ul>/g, '')
+function buildAnthropicMessageContent(blocks: ChatMessage['content']): string | AnthropicContentPart[] {
+  const hasImages = blocks.some(block => block.type === 'image_url' && !!block.image_url?.url)
+  if (!hasImages) {
+    return blocks
+      .filter(block => block.type === 'text')
+      .map(block => block.text || '')
+      .join('')
+  }
 
-  // 8. 链接
-  processed = processed.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+  const parts: AnthropicContentPart[] = []
+  for (const block of blocks) {
+    if (block.type === 'text' && block.text) {
+      parts.push({ type: 'text', text: block.text })
+    } else if (block.type === 'image_url' && block.image_url?.url) {
+      const image = parseImageDataUrl(block.image_url.url)
+      if (image) {
+        parts.push({
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: image.mediaType,
+            data: image.data,
+          },
+        })
+      }
+    }
+  }
+  return parts
+}
 
-  // 9. 换行
-  processed = processed.replace(/\n/g, '<br/>')
+function buildResponsesMessageContent(blocks: ChatMessage['content']): string | ResponsesContentPart[] {
+  const hasImages = blocks.some(block => block.type === 'image_url' && !!block.image_url?.url)
+  if (!hasImages) {
+    return blocks
+      .filter(block => block.type === 'text')
+      .map(block => block.text || '')
+      .join('')
+  }
 
-  // 10. 恢复代码块占位符
-  processed = processed.replace(/\x00CB(\d+)\x00/g, (_, i) => codeBlocks[parseInt(i)])
+  const parts: ResponsesContentPart[] = []
+  for (const block of blocks) {
+    if (block.type === 'text' && block.text) {
+      parts.push({ type: 'input_text', text: block.text })
+    } else if (block.type === 'image_url' && block.image_url?.url) {
+      parts.push({ type: 'input_image', image_url: block.image_url.url })
+    }
+  }
+  return parts
+}
 
-  return processed
+function buildOpenAIHistoryMessages() {
+  return chatStore.messages
+    .filter(isUserOrAssistantMessage)
+    .map(m => ({
+    role: m.role,
+    content: buildOpenAIMessageContent(m.content),
+    }))
+}
+
+function buildAnthropicHistoryMessages() {
+  return chatStore.messages
+    .filter(isUserOrAssistantMessage)
+    .map(m => ({
+    role: m.role,
+    content: buildAnthropicMessageContent(m.content),
+    }))
+}
+
+function buildSidecarHistoryMessages(): SidecarHistoryMessage[] {
+  return chatStore.messages
+    .slice(0, -1)
+    .filter(isUserOrAssistantMessage)
+    .map(m => ({
+    role: m.role,
+    content: buildAnthropicMessageContent(m.content),
+    }))
+}
+
+function buildResponsesInputMessages() {
+  return chatStore.messages
+    .filter(isUserOrAssistantMessage)
+    .map(m => ({
+      role: m.role,
+      content: buildResponsesMessageContent(m.content),
+    }))
+}
+
+function buildCurrentSidecarMessageContent() {
+  const lastUserMessage = [...chatStore.messages].reverse().find(m => m.role === 'user')
+  if (!lastUserMessage) return ''
+  return buildAnthropicMessageContent(lastUserMessage.content)
 }
 
 // 发送消息
@@ -410,11 +598,31 @@ async function sendMessage() {
   if ((!text && pendingImages.value.length === 0) || isStreaming.value) return
 
   // 获取 API Key
-  const provider = configStore.defaultProvider
+  const provider = selectedProvider.value
+  if (!provider?.apiKey) {
+    showToast('当前模型供应商未配置 API Key，请先前往设置完成配置', 'error')
+    return
+  }
+  if (provider?.id && currentProviderId.value !== provider.id) {
+    currentProviderId.value = provider.id
+  }
 
   // 如果还没有当前对话，创建一个
   if (!chatStore.currentConversationId) {
-    chatStore.createConversation()
+    const sessionId = chatStore.createConversation(
+      currentModel.value,
+      undefined,
+      provider?.id || currentProviderId.value || undefined,
+    )
+    router.replace(`/chat/${sessionId}`)
+  }
+
+  if (editingMessageId.value) {
+    const editIndex = chatStore.messages.findIndex(msg => msg.id === editingMessageId.value)
+    if (editIndex >= 0) {
+      chatStore.messages.splice(editIndex)
+    }
+    editingMessageId.value = null
   }
 
   // 构建 content 数组（支持图片）
@@ -448,11 +656,7 @@ async function sendMessage() {
   streamingUsage.value = ''
 
   try {
-    if (provider?.apiKey) {
-      await streamAuto(text, provider.apiKey, provider.baseUrl, provider.endpointType)
-    } else {
-      await mockStream(text)
-    }
+    await streamAuto(text, provider.apiKey, provider.baseUrl, provider.endpointType)
   } catch (error) {
     console.error('[Chat] 发送消息失败:', error)
     streamingText.value = `❌ 错误: ${(error as Error).message}`
@@ -478,20 +682,26 @@ async function sendMessage() {
 
 /** 从 Sidecar SSE 流式读取（POST，避免 apiKey 暴露在 URL 中） */
 async function streamFromSidecar(prompt: string, apiKey: string, baseUrl?: string, endpointType?: string) {
+  const sessionId = activeSidecarSessionId.value
+  await ensureActiveSidecarSession(sessionId)
   const sidecarUrl = getBaseUrl()
+  const messageContent = buildCurrentSidecarMessageContent()
+  const historyMessages = buildSidecarHistoryMessages()
 
   currentAbortController = new AbortController()
   const response = await fetch(`${sidecarUrl}/api/chat/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      sessionId: 'default',
+      sessionId,
       prompt,
       apiKey,
       model: currentModel.value,
       baseUrl,
       endpointType,
       skillPrompt: skillStore.combinedSkillPrompt,
+      messageContent,
+      historyMessages,
     }),
     signal: currentAbortController.signal,
   })
@@ -565,14 +775,11 @@ function handleSSEEvent(event: { type: string; data?: Record<string, unknown> })
  * 直接调用 OpenAI / OpenAI 兼容 API（无需 Sidecar）
  * 支持所有兼容 OpenAI Chat Completions 格式的服务（DeepSeek、通义千问等）
  */
-async function streamFromOpenAI(prompt: string, apiKey: string, baseUrl: string) {
+async function streamFromOpenAI(_prompt: string, apiKey: string, baseUrl: string) {
   const url = `${baseUrl.replace(/\/+$/, '')}/v1/chat/completions`
 
   // 构建消息历史
-  const historyMessages = chatStore.messages.map(m => ({
-    role: m.role,
-    content: m.content.filter(b => b.type === 'text').map(b => b.text || '').join(''),
-  }))
+  const historyMessages = buildOpenAIHistoryMessages()
 
   // 添加 system prompt（技能注入）
   const systemMessages: Array<{role: string; content: string}> = []
@@ -592,7 +799,6 @@ async function streamFromOpenAI(prompt: string, apiKey: string, baseUrl: string)
       messages: [
         ...systemMessages,
         ...historyMessages,
-        { role: 'user', content: prompt },
       ],
       stream: true,
     }),
@@ -647,14 +853,11 @@ async function streamFromOpenAI(prompt: string, apiKey: string, baseUrl: string)
 /**
  * 直接调用 Anthropic Messages API（无需 Sidecar）
  */
-async function streamFromAnthropic(prompt: string, apiKey: string, baseUrl: string) {
+async function streamFromAnthropic(_prompt: string, apiKey: string, baseUrl: string) {
   const url = `${baseUrl.replace(/\/+$/, '')}/v1/messages`
 
   // 构建消息历史
-  const historyMessages = chatStore.messages.map(m => ({
-    role: m.role,
-    content: m.content.filter(b => b.type === 'text').map(b => b.text || '').join(''),
-  }))
+  const historyMessages = buildAnthropicHistoryMessages()
 
   // System prompt
   const systemPrompt = skillStore.combinedSkillPrompt || undefined
@@ -671,10 +874,7 @@ async function streamFromAnthropic(prompt: string, apiKey: string, baseUrl: stri
       model: currentModel.value,
       max_tokens: 8192,
       system: systemPrompt,
-      messages: [
-        ...historyMessages,
-        { role: 'user', content: prompt },
-      ],
+      messages: historyMessages,
       stream: true,
     }),
     signal: currentAbortController.signal,
@@ -726,20 +926,14 @@ async function streamFromAnthropic(prompt: string, apiKey: string, baseUrl: stri
  * 直接调用 OpenAI Responses API（/v1/responses，2025 年新接口）
  * 使用语义化 SSE 事件格式
  */
-async function streamFromOpenAIResponses(prompt: string, apiKey: string, baseUrl: string) {
+async function streamFromOpenAIResponses(_prompt: string, apiKey: string, baseUrl: string) {
   const url = `${baseUrl.replace(/\/+$/, '')}/v1/responses`
 
   // 构建输入：Responses API 使用 input 字段（支持字符串或消息数组）
-  const historyMessages = chatStore.messages.map(m => ({
-    role: m.role,
-    content: m.content.filter(b => b.type === 'text').map(b => b.text || '').join(''),
-  }))
+  const historyMessages = buildResponsesInputMessages()
 
   // 构建 input 消息数组
-  const inputMessages = [
-    ...historyMessages,
-    { role: 'user', content: prompt },
-  ]
+  const inputMessages = historyMessages
 
   // 系统指令（技能注入）
   const instructions = skillStore.combinedSkillPrompt || undefined
@@ -846,9 +1040,9 @@ async function streamAuto(prompt: string, apiKey: string, baseUrl?: string, endp
 
   // 尝试 Sidecar 优先
   try {
+    await ensureActiveSidecarSession()
     const sidecarUrl = getBaseUrl()
-    const healthCheck = await fetch(`${sidecarUrl}/health`, { signal: AbortSignal.timeout(1000) }).catch(() => null)
-    if (healthCheck?.ok) {
+    if (await waitForSidecarReady(sidecarUrl)) {
       // Sidecar 可用，使用 Sidecar 中转
       await streamFromSidecar(prompt, apiKey, baseUrl, endpointType)
       return
@@ -863,39 +1057,42 @@ async function streamAuto(prompt: string, apiKey: string, baseUrl?: string, endp
     await streamFromOpenAI(prompt, apiKey, url)
   } else if (type === 'anthropic') {
     await streamFromAnthropic(prompt, apiKey, url)
+  } else if (type === 'gemini') {
+    throw new Error('Gemini 供应商当前依赖 Sidecar 代理，请确认桌面侧 Sidecar 可用')
   } else {
     // 其他类型尝试 OpenAI 兼容格式
     await streamFromOpenAI(prompt, apiKey, url)
   }
 }
 
-/** 模拟流式输出（无 API Key 时） */
-async function mockStream(prompt: string) {
-  const response = `你好！我是 AI Agent。
+async function waitForSidecarReady(sidecarUrl: string, retries: number = 8, delayMs: number = 250): Promise<boolean> {
+  for (let attempt = 0; attempt < retries; attempt++) {
+    const healthCheck = await fetch(`${sidecarUrl}/health`, {
+      signal: AbortSignal.timeout(1000),
+    }).catch(() => null)
 
-你说的是：「${prompt}」
+    if (healthCheck?.ok) {
+      return true
+    }
 
-⚠️ **API Key 未配置**
-
-请前往 **设置 → 模型供应商** 页面：
-1. 找到 **Anthropic** 供应商
-2. 输入你的 API Key
-3. 点击 **测试连接**
-
-配置完成后，我就能真正为你提供 AI 服务了！🚀`
-
-  for (const char of response) {
-    if (!isStreaming.value) break
-    streamingText.value += char
-    scrollToBottom()
-    await new Promise(r => setTimeout(r, 15))
+    if (attempt < retries - 1) {
+      await new Promise(resolve => setTimeout(resolve, delayMs))
+    }
   }
+
+  return false
 }
 
 function stopStreaming() {
   isStreaming.value = false
   currentAbortController?.abort()
   currentAbortController = null
+
+  void fetch(`${getBaseUrl()}/api/chat/stop`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId: activeSidecarSessionId.value }),
+  }).catch(() => {})
 }
 
 function handleKeydown(e: KeyboardEvent) {
@@ -949,21 +1146,21 @@ async function regenerateMessage(idx: number) {
     }
   }
   if (!userPrompt) return
+  const provider = selectedProvider.value
+  if (!provider?.apiKey) {
+    showToast('当前模型供应商未配置 API Key，无法重新生成', 'error')
+    return
+  }
   // 删除该条 AI 消息
   chatStore.messages.splice(idx, 1)
   scrollToBottom()
 
   // 直接发起流式请求，不再添加用户消息
-  const provider = configStore.defaultProvider
   isStreaming.value = true
   streamingText.value = ''
   streamingUsage.value = ''
   try {
-    if (provider?.apiKey) {
-      await streamAuto(userPrompt, provider.apiKey, provider.baseUrl, provider.endpointType)
-    } else {
-      await mockStream(userPrompt)
-    }
+    await streamAuto(userPrompt, provider.apiKey, provider.baseUrl, provider.endpointType)
   } catch (error) {
     streamingText.value = `❌ 错误: ${(error as Error).message}`
   }
@@ -983,19 +1180,42 @@ async function regenerateMessage(idx: number) {
   await chatStore.saveCurrentConversation()
 }
 
-/** 编辑重试：将用户消息填回输入框，并删除该消息及其之后的所有消息 */
+function cancelEditingMessage() {
+  editingMessageId.value = null
+}
+
+/** 编辑重试：将用户消息填回输入框，发送时再截断该消息之后的历史 */
 function editMessage(idx: number) {
   const msg = chatStore.messages[idx]
   inputText.value = getMessageText(msg)
-  // 删除当前消息及之后所有
-  chatStore.messages.splice(idx)
+  editingMessageId.value = msg.id
   nextTick(() => textareaRef.value?.focus())
 }
 
 /** 删除单条消息 */
 function deleteMessage(idx: number) {
+  const deletedMessage = chatStore.messages[idx]
   chatStore.messages.splice(idx, 1)
+  if (deletedMessage?.id === editingMessageId.value) {
+    editingMessageId.value = null
+  }
   chatStore.saveCurrentConversation()
+}
+
+async function forkCurrentConversation() {
+  const sessionId = await chatStore.forkConversation()
+  if (!sessionId) return
+  router.push(`/chat/${sessionId}`)
+  showToast('已创建对话分叉', 'success')
+}
+
+async function forkConversationAt(idx: number) {
+  const msg = chatStore.messages[idx]
+  if (!msg) return
+  const sessionId = await chatStore.forkConversation(undefined, msg.id)
+  if (!sessionId) return
+  router.push(`/chat/${sessionId}`)
+  showToast('已从当前消息创建分叉', 'success')
 }
 
 /** 触发图片文件选择 */
@@ -1100,6 +1320,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   stopStreaming()
+  void releaseActiveSidecarSession()
   window.removeEventListener('keydown', handleGlobalShortcut)
 })
 </script>
@@ -1454,6 +1675,33 @@ onUnmounted(() => {
   box-shadow: 0 0 0 3px var(--color-primary-bg), var(--shadow-md);
 }
 
+.edit-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-warning, #f59e0b) 12%, var(--color-bg-secondary));
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.edit-banner-text {
+  line-height: 1.5;
+}
+
+.edit-banner-btn {
+  border: none;
+  background: transparent;
+  color: var(--color-primary);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  padding: 0;
+}
+
 .chat-textarea {
   width: 100%;
   border: none; outline: none; resize: none;
@@ -1626,3 +1874,4 @@ onUnmounted(() => {
   margin-top: var(--space-md);
   justify-content: flex-end;
 }
+</style>

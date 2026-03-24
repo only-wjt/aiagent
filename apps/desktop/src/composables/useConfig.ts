@@ -7,15 +7,7 @@
 
 import { ref, onMounted } from 'vue'
 import { PROVIDER_TEMPLATES, type ProviderStatus } from '@aiagent/shared'
-
-// 尝试导入 Tauri API
-let invoke: ((cmd: string, args?: Record<string, unknown>) => Promise<unknown>) | null = null
-try {
-  const tauri = await import('@tauri-apps/api/core')
-  invoke = tauri.invoke
-} catch {
-  console.warn('[useConfig] Tauri API 不可用，使用 localStorage 回退')
-}
+import { getTauriInvoke } from '../utils/tauri'
 
 /** 供应商配置（前端视图） */
 export interface ProviderView {
@@ -53,6 +45,7 @@ export function useConfig () {
   async function loadProviders () {
     isLoading.value = true
     try {
+      const invoke = await getTauriInvoke()
       if (invoke) {
         const saved = await invoke('cmd_get_providers') as Array<{
           id: string; name: string; base_url: string; api_key: string;
@@ -99,6 +92,7 @@ export function useConfig () {
 
   /** 保存供应商配置 */
   async function saveProviders () {
+    const invoke = await getTauriInvoke()
     if (invoke) {
       await invoke('cmd_save_providers', {
         providers: providers.value.map(p => ({
@@ -162,6 +156,7 @@ export function useConfig () {
 
   /** 加载应用配置 */
   async function loadAppConfig () {
+    const invoke = await getTauriInvoke()
     if (invoke) {
       const config = await invoke('cmd_get_app_config') as {
         theme: string; locale: string; default_workspace_path: string;
@@ -179,6 +174,7 @@ export function useConfig () {
 
   /** 保存应用配置 */
   async function saveAppConfig () {
+    const invoke = await getTauriInvoke()
     if (invoke) {
       await invoke('cmd_save_app_config', {
         config: {
