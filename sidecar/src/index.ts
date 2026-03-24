@@ -13,6 +13,7 @@ import { SessionManager } from './agent/session'
 import { buildSystemPrompt } from './agent/prompt'
 import { handleProxyRoute } from './adapters/registry'
 import { executeIPCCommand, type IPCCommand } from './ipc/handler'
+import type { MessageParam } from '@anthropic-ai/sdk/resources/messages'
 import * as path from 'path'
 import * as fs from 'fs'
 
@@ -40,6 +41,25 @@ const activeSessions = new Map<string, AgentSession>()
 
 // 当前启用的技能 prompt（从前端传入，注入到 system prompt）
 let currentSkillPrompt = ''
+
+type SidecarMessageContent =
+  | string
+  | Array<
+    | { type: 'text'; text: string }
+    | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
+  >
+
+type SidecarHistoryMessage = {
+  role: 'user' | 'assistant'
+  content: SidecarMessageContent
+}
+
+function toAnthropicHistoryMessages (historyMessages: SidecarHistoryMessage[]): MessageParam[] {
+  return historyMessages.map(message => ({
+    role: message.role,
+    content: message.content,
+  }))
+}
 
 // ==================== 路由处理 ====================
 
@@ -140,6 +160,8 @@ async function handleChatSend (
 ): Promise<Response> {
   const body = await req.json() as {
     prompt: string
+    messageContent?: SidecarMessageContent
+    historyMessages?: SidecarHistoryMessage[]
     sessionId?: string
     apiKey?: string
     model?: string
@@ -147,9 +169,9 @@ async function handleChatSend (
     endpointType?: string
   }
 
-  const { prompt, sessionId, apiKey, model, baseUrl, endpointType } = body
+  const { prompt, messageContent, historyMessages, sessionId, apiKey, model, baseUrl, endpointType } = body
 
-  if (!prompt) {
+  if (!prompt && !messageContent) {
     return Response.json({ error: '消息内容不能为空' }, { status: 400, headers })
   }
 
@@ -169,10 +191,14 @@ async function handleChatSend (
     )
   }
 
+  if (historyMessages !== undefined) {
+    session.setMessages(toAnthropicHistoryMessages(historyMessages))
+  }
+
   // 收集完整响应
   let responseText = ''
 
-  await session.sendMessage(prompt, {
+  await session.sendMessage(messageContent || prompt, {
     onText: (text) => { responseText += text },
     onError: (error) => {
       responseText = `错误: ${error.message}`
@@ -203,6 +229,8 @@ async function handleChatStream (
   const body = await req.json() as {
     sessionId?: string
     prompt?: string
+    messageContent?: SidecarMessageContent
+    historyMessages?: SidecarHistoryMessage[]
     apiKey?: string
     model?: string
     baseUrl?: string
@@ -212,6 +240,8 @@ async function handleChatStream (
 
   const sessionId = body.sessionId || 'default'
   const prompt = body.prompt || ''
+  const messageContent = body.messageContent
+  const historyMessages = body.historyMessages
   const apiKey = body.apiKey || process.env.ANTHROPIC_API_KEY || ''
   const model = body.model || 'claude-sonnet-4-20250514'
   const baseUrl = body.baseUrl || undefined
@@ -223,7 +253,7 @@ async function handleChatStream (
   const stream = new ReadableStream({
     start (controller) {
       // 如果没有 prompt，发送等待事件
-      if (!prompt) {
+      if (!prompt && !messageContent) {
         const event = `data: ${JSON.stringify({ type: 'message:start', sessionId })}\n\n`
         controller.enqueue(encoder.encode(event))
 
@@ -243,7 +273,7 @@ async function handleChatStream (
       }
 
       // 更新当前 skill prompt
-      if (skillPrompt) currentSkillPrompt = skillPrompt
+      currentSkillPrompt = skillPrompt || ''
 
       // 有 prompt 时，使用 Agent SDK 流式响应
       const session = getOrCreateAgentSession(sessionId, {
@@ -261,12 +291,16 @@ async function handleChatStream (
         return
       }
 
+      if (historyMessages !== undefined) {
+        session.setMessages(toAnthropicHistoryMessages(historyMessages))
+      }
+
       // 发送开始事件
       controller.enqueue(
         encoder.encode(`data: ${JSON.stringify({ type: 'message:start', sessionId })}\n\n`)
       )
 
-      session.sendMessage(prompt, {
+      session.sendMessage(messageContent || prompt, {
         onText: (text) => {
           const chunk = `data: ${JSON.stringify({ type: 'message:chunk', data: { text } })}\n\n`
           controller.enqueue(encoder.encode(chunk))
@@ -422,18 +456,25 @@ function getOrCreateAgentSession (
   }
 
   // 复合缓存 key：同一个 session + 同型号 + 同端点才复用
-  const cacheKey = `${sessionId}:${config.model}:${config.endpointType || 'anthropic'}`
+  const cacheKey = `${sessionId}:${config.model}:${config.endpointType || 'anthropic'}:${config.baseUrl || ''}`
+
+  const systemPrompt = buildSystemPrompt(
+    { type: 'desktop' },
+    currentSkillPrompt || undefined,
+  )
 
   // 更新活跃时间
   sessionLastActive.set(cacheKey, Date.now())
 
   // 复用已有 session
   if (activeSessions.has(cacheKey)) {
-    return activeSessions.get(cacheKey)!
+    const existing = activeSessions.get(cacheKey)!
+    existing.setSystemPrompt(systemPrompt)
+    existing.setModel(config.model)
+    return existing
   }
 
   // 创建新 session
-  const systemPrompt = buildSystemPrompt({ type: 'desktop' })
   const session = new AgentSession({
     apiKey: config.apiKey,
     model: config.model,

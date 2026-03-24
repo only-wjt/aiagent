@@ -7,15 +7,7 @@
 
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-
-// 尝试导入 Tauri API
-let invoke: ((cmd: string, args?: Record<string, unknown>) => Promise<unknown>) | null = null
-try {
-  const tauri = await import('@tauri-apps/api/core')
-  invoke = tauri.invoke
-} catch {
-  console.warn('[ChatStore] Tauri API 不可用')
-}
+import { getTauriInvoke } from '../utils/tauri'
 
 /** 消息内容块 */
 export interface ContentBlock {
@@ -24,16 +16,36 @@ export interface ContentBlock {
   name?: string
   id?: string
   input?: Record<string, unknown>
+  image_url?: { url: string }
 }
+
+export interface PersistedToolCall {
+  id: string
+  name: string
+  args: Record<string, unknown>
+  status: 'pending' | 'running' | 'done' | 'error'
+  result?: string
+  error?: string
+  duration?: number
+  collapsed?: boolean
+}
+
+export type ChatMessageRole = 'user' | 'assistant' | 'tool'
+export type AgentSessionMode = 'action' | 'plan' | 'autonomous'
 
 /** 对话消息 */
 export interface ChatMessage {
   id: string
-  role: 'user' | 'assistant'
+  role: ChatMessageRole
   content: ContentBlock[]
   createdAt: string
   usage?: string
   model?: string
+  thinking?: string
+  thinkingDuration?: number
+  toolCalls?: PersistedToolCall[]
+  toolCallId?: string
+  toolName?: string
 }
 
 /** 对话摘要（列表展示） */
@@ -41,6 +53,7 @@ export interface ConversationSummary {
   id: string
   title: string
   model: string
+  providerId?: string
   createdAt: string
   updatedAt: string
   messageCount: number
@@ -54,6 +67,10 @@ export interface Conversation {
   id: string
   title: string
   model: string
+  providerId?: string
+  workspaceId?: string
+  agentMode?: AgentSessionMode
+  enabledTools?: Record<string, boolean>
   createdAt: string
   updatedAt: string
   messages: ChatMessage[]
@@ -74,6 +91,15 @@ export const useChatStore = defineStore('chat', () => {
   /** 当前对话模型 */
   const currentModel = ref('claude-sonnet-4-20250514')
 
+  /** 当前对话供应商 */
+  const currentProviderId = ref<string | null>(null)
+
+  /** 当前 Agent 会话模式（仅 Agent 会话使用） */
+  const currentAgentMode = ref<AgentSessionMode | null>(null)
+
+  /** 当前 Agent 会话工具开关（仅 Agent 会话使用） */
+  const currentEnabledTools = ref<Record<string, boolean> | null>(null)
+
   /** 是否已加载 */
   const isLoaded = ref(false)
 
@@ -83,6 +109,11 @@ export const useChatStore = defineStore('chat', () => {
   const currentConversation = computed(() =>
     conversations.value.find(c => c.id === currentConversationId.value)
   )
+
+  function normalizeChatMessageRole(role: string): ChatMessageRole {
+    if (role === 'assistant' || role === 'tool') return role
+    return 'user'
+  }
 
   // ==================== 初始化 ====================
 
@@ -98,10 +129,13 @@ export const useChatStore = defineStore('chat', () => {
 
   /** 加载对话列表 */
   async function loadConversationList () {
+    const invoke = await getTauriInvoke()
     if (!invoke) return
     try {
       const list = await invoke('cmd_list_conversations') as Array<{
         id: string; title: string; model: string;
+        provider_id?: string | null;
+        workspace_id?: string | null;
         created_at: string; updated_at: string;
         message_count: number; preview: string;
       }>
@@ -109,6 +143,8 @@ export const useChatStore = defineStore('chat', () => {
         id: c.id,
         title: c.title,
         model: c.model,
+        providerId: c.provider_id || undefined,
+        workspaceId: c.workspace_id || undefined,
         createdAt: c.created_at,
         updatedAt: c.updated_at,
         messageCount: c.message_count,
@@ -120,14 +156,18 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   /** 创建新对话 */
-  function createConversation (model?: string, workspaceId?: string): string {
+  function createConversation (model?: string, workspaceId?: string, providerId?: string): string {
     const id = crypto.randomUUID()
     const now = new Date().toISOString()
     const m = model || currentModel.value
+    const p = providerId ?? currentProviderId.value ?? undefined
 
     // 切换到新对话
     currentConversationId.value = id
     currentModel.value = m
+    currentProviderId.value = p || null
+    currentAgentMode.value = null
+    currentEnabledTools.value = null
     messages.value = []
 
     // 立即添加到列表顶部
@@ -135,6 +175,7 @@ export const useChatStore = defineStore('chat', () => {
       id,
       title: '新对话',
       model: m,
+      providerId: p,
       createdAt: now,
       updatedAt: now,
       messageCount: 0,
@@ -147,27 +188,50 @@ export const useChatStore = defineStore('chat', () => {
 
   /** 加载指定对话 */
   async function loadConversation (id: string) {
+    const invoke = await getTauriInvoke()
     if (!invoke) return
     try {
       const conv = await invoke('cmd_load_conversation', { id }) as {
         id: string; title: string; model: string;
+        provider_id?: string | null;
+        workspace_id?: string | null;
+        agent_mode?: AgentSessionMode | null;
+        enabled_tools?: Record<string, boolean> | null;
         created_at: string; updated_at: string;
         messages: Array<{
           id: string; role: string;
-          content: Array<{ type: string; text?: string; name?: string; id?: string }>;
+          content: Array<{ type: string; text?: string; name?: string; id?: string; image_url?: { url: string } }>;
           created_at: string; usage?: string;
+          thinking?: string | null;
+          thinking_duration?: number | null;
+          tool_calls?: PersistedToolCall[] | null;
+          tool_call_id?: string | null;
+          tool_name?: string | null;
         }>;
       }
 
       currentConversationId.value = conv.id
       currentModel.value = conv.model
+      currentProviderId.value = conv.provider_id || null
+      currentAgentMode.value = conv.agent_mode || null
+      currentEnabledTools.value = conv.enabled_tools || null
+      const summary = conversations.value.find(c => c.id === conv.id)
+      if (summary) {
+        summary.workspaceId = conv.workspace_id || undefined
+        summary.providerId = conv.provider_id || undefined
+      }
       messages.value = conv.messages.map(m => ({
         id: m.id,
-        role: m.role as 'user' | 'assistant',
+        role: normalizeChatMessageRole(m.role),
         content: m.content.map(b => ({ ...b })),
         createdAt: m.created_at,
         usage: m.usage,
         model: (m as any).model,
+        thinking: m.thinking || undefined,
+        thinkingDuration: m.thinking_duration || undefined,
+        toolCalls: m.tool_calls || undefined,
+        toolCallId: m.tool_call_id || undefined,
+        toolName: m.tool_name || undefined,
       }))
     } catch (e) {
       console.error('[ChatStore] 加载对话失败:', e)
@@ -185,6 +249,7 @@ export const useChatStore = defineStore('chat', () => {
 
   /** 实际执行保存 */
   async function _doSaveConversation () {
+    const invoke = await getTauriInvoke()
     if (!invoke || !currentConversationId.value) return
     try {
       // 自动生成标题：取第一条用户消息的前 30 字
@@ -205,6 +270,10 @@ export const useChatStore = defineStore('chat', () => {
         id: currentConversationId.value,
         title,
         model: currentModel.value,
+        provider_id: currentProviderId.value,
+        workspace_id: currentConversation.value?.workspaceId || null,
+        agent_mode: currentAgentMode.value,
+        enabled_tools: currentEnabledTools.value,
         created_at: currentConversation.value?.createdAt || now,
         updated_at: now,
         messages: messages.value.map(m => ({
@@ -215,9 +284,15 @@ export const useChatStore = defineStore('chat', () => {
             text: b.text || null,
             name: b.name || null,
             id: b.id || null,
+            image_url: b.image_url || null,
           })),
           created_at: m.createdAt,
           usage: m.usage || null,
+          thinking: m.thinking || null,
+          thinking_duration: m.thinkingDuration || null,
+          tool_calls: m.toolCalls || null,
+          tool_call_id: m.toolCallId || null,
+          tool_name: m.toolName || null,
         })),
       }
 
@@ -225,15 +300,18 @@ export const useChatStore = defineStore('chat', () => {
 
       // 更新列表中的摘要
       const idx = conversations.value.findIndex(c => c.id === currentConversationId.value)
-      const preview = messages.value.length > 0
-        ? (messages.value[messages.value.length - 1].content
-          .find(b => b.type === 'text')?.text || '').slice(0, 80)
+      const previewMessage = [...messages.value].reverse().find(m => m.role !== 'tool')
+        || messages.value[messages.value.length - 1]
+      const preview = previewMessage
+        ? (previewMessage.content.find(b => b.type === 'text')?.text || '').slice(0, 80)
         : ''
 
       const summary: ConversationSummary = {
         id: currentConversationId.value,
         title,
         model: currentModel.value,
+        providerId: currentProviderId.value || undefined,
+        workspaceId: currentConversation.value?.workspaceId,
         createdAt: conversation.created_at,
         updatedAt: now,
         messageCount: messages.value.length,
@@ -252,6 +330,7 @@ export const useChatStore = defineStore('chat', () => {
 
   /** 删除对话 */
   async function deleteConversation (id: string) {
+    const invoke = await getTauriInvoke()
     if (!invoke) return
     try {
       await invoke('cmd_delete_conversation', { id })
@@ -260,6 +339,9 @@ export const useChatStore = defineStore('chat', () => {
       // 如果删除的是当前对话，清空状态
       if (currentConversationId.value === id) {
         currentConversationId.value = null
+        currentProviderId.value = null
+        currentAgentMode.value = null
+        currentEnabledTools.value = null
         messages.value = []
       }
     } catch (e) {
@@ -279,6 +361,7 @@ export const useChatStore = defineStore('chat', () => {
 
   /** 置顶/取消置顶（同步持久化） */
   async function togglePin (id: string) {
+    const invoke = await getTauriInvoke()
     const conv = conversations.value.find(c => c.id === id)
     if (conv) {
       conv.pinned = !conv.pinned
@@ -290,7 +373,7 @@ export const useChatStore = defineStore('chat', () => {
             .map(c => c.id)
           await invoke('cmd_write_json', {
             filename: 'pinned_conversations.json',
-            data: pinnedIds,
+            data: JSON.stringify(pinnedIds),
           })
         } catch (e) {
           console.error('[ChatStore] 保存置顶状态失败:', e)
@@ -301,12 +384,14 @@ export const useChatStore = defineStore('chat', () => {
 
   /** 加载置顶状态 */
   async function loadPinnedState () {
+    const invoke = await getTauriInvoke()
     if (!invoke) return
     try {
-      const pinnedIds = await invoke('cmd_read_json', {
+      const json = await invoke('cmd_read_json', {
         filename: 'pinned_conversations.json',
-      }) as string[] | null
-      if (pinnedIds && Array.isArray(pinnedIds)) {
+      }) as string | null
+      if (json && json !== 'null') {
+        const pinnedIds = JSON.parse(json) as string[]
         for (const conv of conversations.value) {
           conv.pinned = pinnedIds.includes(conv.id)
         }
@@ -322,6 +407,9 @@ export const useChatStore = defineStore('chat', () => {
     currentConversationId,
     messages,
     currentModel,
+    currentProviderId,
+    currentAgentMode,
+    currentEnabledTools,
     isLoaded,
     // 计算属性
     currentConversation,

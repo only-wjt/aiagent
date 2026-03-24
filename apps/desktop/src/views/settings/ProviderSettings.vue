@@ -282,8 +282,20 @@ function getActualEndpoint(baseUrl: string, endpointType?: string): string {
 }
 
 async function onApiKeyChange(providerId: string, value: string) {
-  await configStore.updateProviderApiKey(providerId, value.trim())
-  delete testResults[providerId]
+  const provider = providers.find(p => p.id === providerId)
+  if (!provider) return
+
+  const previousKey = provider.apiKey
+  const previousStatus = provider.status
+
+  try {
+    await configStore.updateProviderApiKey(providerId, value.trim())
+    delete testResults[providerId]
+  } catch (e: any) {
+    provider.apiKey = previousKey
+    provider.status = previousStatus
+    alert(e.message || '保存 API Key 失败')
+  }
 }
 
 async function testConnection(providerId: string) {
@@ -292,16 +304,26 @@ async function testConnection(providerId: string) {
   try {
     const ok = await configStore.testProviderConnection(providerId)
     testResults[providerId] = ok ? 'success' : 'error'
-  } catch {
+  } catch (e: any) {
     testResults[providerId] = 'error'
+    alert(e.message || '测试连接失败')
   } finally {
     testingId.value = null
   }
 }
 
 async function setDefault(providerId: string) {
+  const previousDefaults = providers.map(p => ({ id: p.id, isDefault: p.isDefault }))
   configStore.providers.forEach(p => p.isDefault = p.id === providerId)
-  await configStore.saveProviders()
+  try {
+    await configStore.saveProviders()
+  } catch (e: any) {
+    previousDefaults.forEach(prev => {
+      const provider = providers.find(p => p.id === prev.id)
+      if (provider) provider.isDefault = prev.isDefault
+    })
+    alert(e.message || '设置默认供应商失败')
+  }
 }
 
 function applyPreset(p: { name: string; baseUrl: string; endpointType: string }) {
@@ -315,13 +337,22 @@ async function fetchModalModels() {
   fetchingModalModels.value = true
   try {
     const base = form.baseUrl.replace(/\/+$/, '')
-    const headers: Record<string, string> = form.endpointType === 'anthropic'
-      ? { 'x-api-key': form.apiKey, 'anthropic-version': '2023-06-01' }
-      : { 'Authorization': `Bearer ${form.apiKey}` }
-    const resp = await apiFetch(`${base}/v1/models`, { headers })
+    let resp: Response
+
+    if (form.endpointType === 'gemini') {
+      resp = await apiFetch(`${base}/v1beta/models?key=${form.apiKey}`)
+    } else {
+      const headers: Record<string, string> = form.endpointType === 'anthropic'
+        ? { 'x-api-key': form.apiKey, 'anthropic-version': '2023-06-01' }
+        : { 'Authorization': `Bearer ${form.apiKey}` }
+      resp = await apiFetch(`${base}/v1/models`, { headers })
+    }
+
     if (resp.ok) {
       const json = await resp.json()
-      const modelIds = (json.data || []).map((m: any) => m.id as string).sort()
+      const modelIds = form.endpointType === 'gemini'
+        ? (json.models || []).map((m: any) => String(m.name || '').replace(/^models\//, '')).filter(Boolean).sort()
+        : (json.data || []).map((m: any) => m.id as string).sort()
       form.models = modelIds.map((id: string) => ({ id, name: id, enabled: true }))
     }
   } catch (e) {
@@ -373,8 +404,12 @@ async function saveEditedProvider() {
   provider.apiKey = form.apiKey.trim()
   provider.status = form.apiKey.trim() ? 'active' : 'unconfigured'
   provider.models = form.models.map(m => ({ id: m.id, name: m.name, enabled: m.enabled, isCustom: m.isCustom }))
-  await configStore.saveProviders()
-  closeModal()
+  try {
+    await configStore.saveProviders()
+    closeModal()
+  } catch (e: any) {
+    alert(e.message || '保存失败')
+  }
 }
 
 async function addProvider() {
@@ -391,8 +426,13 @@ async function addProvider() {
     models: form.models.map(m => ({ id: m.id, name: m.name, enabled: m.enabled, isCustom: m.isCustom })),
   }
   providers.push(newProvider as any)
-  await configStore.saveProviders()
-  closeModal()
+  try {
+    await configStore.saveProviders()
+    closeModal()
+  } catch (e: any) {
+    providers.pop()
+    alert(e.message || '保存失败')
+  }
 }
 
 async function removeCustomProvider(id: string) {
@@ -401,12 +441,22 @@ async function removeCustomProvider(id: string) {
 
   const provider = providers[idx]
   if (!provider.isCustom) return
-  if (provider.isDefault) return
+  if (provider.isDefault) {
+    alert('请先将默认供应商切换为其他供应商，再删除')
+    return
+  }
+
+  if (!confirm(`确定删除供应商「${provider.name}」？`)) return
 
   providers.splice(idx, 1)
   delete testResults[id]
   delete showKey[id]
-  await configStore.saveProviders()
+  try {
+    await configStore.saveProviders()
+  } catch (e: any) {
+    providers.splice(idx, 0, provider)
+    alert(e.message || '删除失败')
+  }
 }
 
 

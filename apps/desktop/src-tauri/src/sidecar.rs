@@ -241,16 +241,17 @@ impl SidecarManager {
 
 /// 查找 bun 可执行文件
 fn which_bun() -> Option<String> {
-    // Windows: 检查 ~/.bun/bin/bun.exe
     if let Some(home) = dirs::home_dir() {
-        let bun_path = home.join(".bun").join("bin").join("bun.exe");
+        let bun_binary = if cfg!(windows) { "bun.exe" } else { "bun" };
+        let bun_path = home.join(".bun").join("bin").join(bun_binary);
         if bun_path.exists() {
             return Some(bun_path.to_string_lossy().to_string());
         }
     }
 
-    // 尝试 PATH 中的 bun
-    if let Ok(output) = std::process::Command::new("where")
+    let locator = if cfg!(windows) { "where" } else { "which" };
+
+    if let Ok(output) = std::process::Command::new(locator)
         .arg("bun")
         .output()
     {

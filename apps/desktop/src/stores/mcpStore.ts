@@ -7,15 +7,7 @@
 
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-
-// 尝试导入 Tauri API
-let invoke: ((cmd: string, args?: Record<string, unknown>) => Promise<unknown>) | null = null
-try {
-  const tauri = await import('@tauri-apps/api/core')
-  invoke = tauri.invoke
-} catch {
-  console.warn('[McpStore] Tauri API 不可用')
-}
+import { getTauriInvoke } from '../utils/tauri'
 
 /** MCP 工具配置 */
 export interface McpTool {
@@ -48,6 +40,7 @@ export const useMcpStore = defineStore('mcp', () => {
   }
 
   async function load () {
+    const invoke = await getTauriInvoke()
     if (!invoke) return
     try {
       const json = await invoke('cmd_read_json', { filename: 'mcp_tools.json' }) as string
@@ -64,6 +57,7 @@ export const useMcpStore = defineStore('mcp', () => {
   }
 
   async function save () {
+    const invoke = await getTauriInvoke()
     if (!invoke) return
     try {
       await invoke('cmd_write_json', {
@@ -107,6 +101,7 @@ export const useMcpStore = defineStore('mcp', () => {
 
   /** 连接 MCP 服务器（启动进程 + MCP 握手） */
   async function connectTool (id: string) {
+    const invoke = await getTauriInvoke()
     const t = tools.value.find(t => t.id === id)
     if (!t || !invoke) return
     t.status = 'disconnected'
@@ -126,6 +121,7 @@ export const useMcpStore = defineStore('mcp', () => {
 
   /** 断开 MCP 服务器 */
   async function disconnectTool (id: string) {
+    const invoke = await getTauriInvoke()
     const t = tools.value.find(t => t.id === id)
     if (!t || !invoke) return
     try {
@@ -138,6 +134,7 @@ export const useMcpStore = defineStore('mcp', () => {
 
   /** 调用 MCP 工具 */
   async function callMcpTool (toolId: string, toolName: string, args: Record<string, unknown>): Promise<string> {
+    const invoke = await getTauriInvoke()
     if (!invoke) throw new Error('Tauri not available')
     const result = await invoke('cmd_mcp_call_tool', {
       toolId,

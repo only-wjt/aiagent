@@ -8,15 +8,7 @@
 
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-
-// 尝试导入 Tauri API
-let invoke: ((cmd: string, args?: Record<string, unknown>) => Promise<unknown>) | null = null
-try {
-  const tauri = await import('@tauri-apps/api/core')
-  invoke = tauri.invoke
-} catch {
-  console.warn('[SkillStore] Tauri API 不可用')
-}
+import { getTauriInvoke } from '../utils/tauri'
 
 /** 内置技能 */
 export interface BuiltinSkill {
@@ -123,6 +115,7 @@ export const useSkillStore = defineStore('skill', () => {
   }
 
   async function load () {
+    const invoke = await getTauriInvoke()
     if (!invoke) return
     try {
       const json = await invoke('cmd_read_json', { filename: 'skills.json' }) as string
@@ -147,6 +140,7 @@ export const useSkillStore = defineStore('skill', () => {
   }
 
   async function save () {
+    const invoke = await getTauriInvoke()
     if (!invoke) return
     try {
       const data: SkillsData = {

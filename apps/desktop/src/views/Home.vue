@@ -17,7 +17,7 @@
           <div class="quick-input-actions">
             <div class="model-picker-wrapper">
               <span class="model-badge" @click="showModelPicker = !showModelPicker">
-                {{ selectedModel || '选择模型' }} ▾
+                {{ selectedModelLabel }} ▾
               </span>
               <div v-if="showModelPicker" class="model-dropdown card">
                 <div v-if="availableModels.length === 0" class="model-option" style="opacity:0.5;cursor:default">
@@ -25,10 +25,10 @@
                 </div>
                 <div
                   v-for="m in availableModels"
-                  :key="m.id"
+                  :key="m.id + '-' + m.providerId"
                   class="model-option"
-                  :class="{ active: selectedModel === m.id }"
-                  @click="selectedModel = m.id; showModelPicker = false"
+                  :class="{ active: selectedModel === m.id && selectedProviderId === m.providerId }"
+                  @click="selectModel(m.id, m.providerId)"
                 >
                   <span class="model-option-name">{{ m.name }}</span>
                   <span class="model-option-desc">{{ m.providerName }}</span>
@@ -142,7 +142,14 @@ const newWs = reactive({ name: '', path: '' })
 // 可用模型列表（只显示用户勾选启用的模型）
 const availableModels = computed(() => configStore.allEnabledModels())
 const selectedModel = ref(chatStore.currentModel)
+const selectedProviderId = ref(chatStore.currentProviderId)
 const showModelPicker = ref(false)
+const selectedModelLabel = computed(() => {
+  const selected = availableModels.value.find(m =>
+    m.id === selectedModel.value && m.providerId === selectedProviderId.value
+  )
+  return selected?.name || selectedModel.value || '选择模型'
+})
 
 // 最近 5 个对话（不再使用）
 // const recentConversations = computed(() => chatStore.conversations.slice(0, 5))
@@ -153,11 +160,21 @@ function startChat() {
     router.push('/chat')
     return
   }
-  // 设置选择的模型
-  chatStore.currentModel = selectedModel.value
+
+  const sessionId = chatStore.createConversation(
+    selectedModel.value,
+    undefined,
+    selectedProviderId.value || undefined,
+  )
   sessionStorage.setItem('quickPrompt', prompt)
   quickPrompt.value = ''
-  router.push('/chat')
+  router.push(`/chat/${sessionId}`)
+}
+
+function selectModel(modelId: string, providerId: string) {
+  selectedModel.value = modelId
+  selectedProviderId.value = providerId
+  showModelPicker.value = false
 }
 
 function quickAction(prompt: string) {
@@ -173,8 +190,13 @@ async function createWorkspace() {
   showNewWorkspace.value = false
 }
 
-function openWorkspace(_id: string) {
-  router.push('/chat')
+function openWorkspace(id: string) {
+  chatStore.currentModel = selectedModel.value
+  chatStore.currentProviderId = selectedProviderId.value
+  const existingSession = chatStore.conversations.find(c => c.workspaceId === id)
+  const sessionId = existingSession?.id
+    || chatStore.createConversation(selectedModel.value, id, selectedProviderId.value || undefined)
+  router.push(`/agent/${sessionId}`)
 }
 </script>
 
