@@ -10,6 +10,9 @@
         <button class="btn btn-ghost btn-sm btn-flex" @click="exportToMarkdown" :disabled="messages.length === 0" title="导出为 Markdown">
           <Download :size="14" /> 导出
         </button>
+        <button class="btn btn-ghost btn-sm btn-flex" @click="forkCurrentConversation" :disabled="messages.length === 0" title="分叉当前对话">
+          <GitBranch :size="14" /> 分叉
+        </button>
         <button class="btn btn-ghost btn-sm btn-flex" @click="clearChat" :disabled="messages.length === 0 && !isStreaming">
           <Trash2 :size="14" /> 清空
         </button>
@@ -58,6 +61,7 @@
             </div>
             <!-- 悬浮操作栏 -->
             <div class="msg-actions">
+              <button class="msg-action-btn" @click="forkConversationAt(idx)" title="从此处分叉"><GitBranch :size="14" /></button>
               <button class="msg-action-btn" @click="regenerateMessage(idx)" title="重新生成"><RotateCcw :size="14" /></button>
               <button class="msg-action-btn" @click="copyMessage(msg)" title="复制"><Copy :size="14" /></button>
               <button class="msg-action-btn" @click="deleteMessage(idx)" title="删除"><Trash2 :size="14" /></button>
@@ -86,6 +90,7 @@
             </div>
             <!-- 悬浮操作栏 -->
             <div class="msg-actions msg-actions-right">
+              <button class="msg-action-btn" @click="forkConversationAt(idx)" title="从此处分叉"><GitBranch :size="14" /></button>
               <button class="msg-action-btn" @click="editMessage(idx)" title="编辑"><Edit2 :size="14" /></button>
               <button class="msg-action-btn" @click="copyMessage(msg)" title="复制"><Copy :size="14" /></button>
               <button class="msg-action-btn" @click="deleteMessage(idx)" title="删除"><Trash2 :size="14" /></button>
@@ -242,7 +247,8 @@ import { useChatStore, type ChatMessage } from '../stores/chatStore'
 import { useSkillStore } from '../stores/skillStore'
 import { useAgentStore } from '../stores/agentStore'
 import { apiFetch } from '../utils/http'
-import { MessageSquare, Trash2, Plus, Bot, User, Copy, RotateCcw, Edit2, StopCircle, Download, ImageIcon } from 'lucide-vue-next'
+import { renderMarkdown } from '../utils/markdown'
+import { MessageSquare, Trash2, Plus, Bot, User, Copy, RotateCcw, Edit2, StopCircle, Download, ImageIcon, GitBranch } from 'lucide-vue-next'
 
 const { ensureSidecar, releaseSidecar, getBaseUrl } = useSidecar()
 const route = useRoute()
@@ -564,8 +570,8 @@ function buildResponsesInputMessages() {
   return chatStore.messages
     .filter(isUserOrAssistantMessage)
     .map(m => ({
-    role: m.role,
-    content: buildResponsesMessageContent(m.content),
+      role: m.role,
+      content: buildResponsesMessageContent(m.content),
     }))
 }
 
@@ -573,60 +579,6 @@ function buildCurrentSidecarMessageContent() {
   const lastUserMessage = [...chatStore.messages].reverse().find(m => m.role === 'user')
   if (!lastUserMessage) return ''
   return buildAnthropicMessageContent(lastUserMessage.content)
-}
-
-// 安全 Markdown 渲染（先转义 HTML，再应用格式）
-function renderMarkdown(text: string): string {
-  if (!text) return ''
-
-  // 1. 提取代码块，替换为占位符（避免转义）
-  const codeBlocks: string[] = []
-  let processed = text.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
-    const escaped = code.trim()
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-    codeBlocks.push(`<pre class="code-block"><div class="code-block-header"><span class="code-lang">${lang || 'code'}</span><button class="code-copy-btn" onclick="(function(btn){var code=btn.closest('.code-block').querySelector('code').innerText;navigator.clipboard.writeText(code);btn.textContent='✅ 已复制';setTimeout(function(){btn.textContent='📋 复制'},1500)})(this)">📋 复制</button></div><code class="language-${lang || 'text'}">${escaped}</code></pre>`)
-    return `\x00CB${codeBlocks.length - 1}\x00`
-  })
-
-  // 2. 转义 HTML（安全）
-  processed = processed
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-
-  // 3. 行内代码
-  processed = processed.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
-
-  // 4. 粗体 / 斜体
-  processed = processed.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-  processed = processed.replace(/\*(.+?)\*/g, '<em>$1</em>')
-
-  // 5. 标题
-  processed = processed.replace(/^####\s+(.+)$/gm, '<h4>$1</h4>')
-  processed = processed.replace(/^###\s+(.+)$/gm, '<h3>$1</h3>')
-  processed = processed.replace(/^##\s+(.+)$/gm, '<h2>$1</h2>')
-  processed = processed.replace(/^#\s+(.+)$/gm, '<h1>$1</h1>')
-
-  // 6. 有序列表
-  processed = processed.replace(/^\d+\.\s+(.+)$/gm, '<li>$1</li>')
-
-  // 7. 无序列表
-  processed = processed.replace(/^[•\-\*]\s+(.+)$/gm, '<li>$1</li>')
-  processed = processed.replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>')
-  processed = processed.replace(/<\/ul>\s*<ul>/g, '')
-
-  // 8. 链接
-  processed = processed.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
-
-  // 9. 换行
-  processed = processed.replace(/\n/g, '<br/>')
-
-  // 10. 恢复代码块占位符
-  processed = processed.replace(/\x00CB(\d+)\x00/g, (_, i) => codeBlocks[parseInt(i)])
-
-  return processed
 }
 
 // 发送消息
@@ -1245,6 +1197,22 @@ function editMessage(idx: number) {
 function deleteMessage(idx: number) {
   chatStore.messages.splice(idx, 1)
   chatStore.saveCurrentConversation()
+}
+
+async function forkCurrentConversation() {
+  const sessionId = await chatStore.forkConversation()
+  if (!sessionId) return
+  router.push(`/chat/${sessionId}`)
+  showToast('已创建对话分叉', 'success')
+}
+
+async function forkConversationAt(idx: number) {
+  const msg = chatStore.messages[idx]
+  if (!msg) return
+  const sessionId = await chatStore.forkConversation(undefined, msg.id)
+  if (!sessionId) return
+  router.push(`/chat/${sessionId}`)
+  showToast('已从当前消息创建分叉', 'success')
 }
 
 /** 触发图片文件选择 */
