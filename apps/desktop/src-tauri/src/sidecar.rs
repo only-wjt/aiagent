@@ -134,11 +134,7 @@ impl SidecarManager {
     }
 
     /// 释放 Owner 对 Sidecar 的使用
-    pub fn release_sidecar(
-        &self,
-        session_id: &str,
-        owner: &SidecarOwner,
-    ) -> Result<bool, String> {
+    pub fn release_sidecar(&self, session_id: &str, owner: &SidecarOwner) -> Result<bool, String> {
         let mut sidecars = self.sidecars.lock().map_err(|e| e.to_string())?;
 
         if let Some(sidecar) = sidecars.get_mut(session_id) {
@@ -190,11 +186,7 @@ impl SidecarManager {
     }
 
     /// 启动 Sidecar 子进程
-    fn start_sidecar_process(
-        &self,
-        port: u16,
-        workspace_path: &str,
-    ) -> Result<Child, String> {
+    fn start_sidecar_process(&self, port: u16, workspace_path: &str) -> Result<Child, String> {
         // 获取 bun 可执行文件路径
         let bun_path = which_bun().ok_or("未找到 Bun 运行时，请安装 Bun")?;
 
@@ -251,10 +243,7 @@ fn which_bun() -> Option<String> {
 
     let locator = if cfg!(windows) { "where" } else { "which" };
 
-    if let Ok(output) = std::process::Command::new(locator)
-        .arg("bun")
-        .output()
-    {
+    if let Ok(output) = std::process::Command::new(locator).arg("bun").output() {
         if output.status.success() {
             let path = String::from_utf8_lossy(&output.stdout);
             if let Some(first_line) = path.lines().next() {
@@ -318,16 +307,12 @@ pub fn cmd_get_session_port(
 
 /// 获取所有活跃的 Sidecar 列表
 #[tauri::command]
-pub fn cmd_list_sidecars(
-    manager: State<'_, SidecarManager>,
-) -> Vec<SidecarInfo> {
+pub fn cmd_list_sidecars(manager: State<'_, SidecarManager>) -> Vec<SidecarInfo> {
     manager.list_sidecars()
 }
 
 /// 停止所有 Sidecar
 #[tauri::command]
-pub fn cmd_stop_all_sidecars(
-    manager: State<'_, SidecarManager>,
-) {
+pub fn cmd_stop_all_sidecars(manager: State<'_, SidecarManager>) {
     manager.stop_all();
 }

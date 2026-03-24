@@ -33,6 +33,8 @@ apps/desktop/src-tauri/target/
 # Sidecar 编译产物
 sidecar/sidecar-binary*
 
+# BitFun snapshot data - auto managed
+.bitfun/
 # ai工作目录
 .adnify
 .bitfun
