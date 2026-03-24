@@ -115,6 +115,9 @@
           >
             <MessageSquare :size="14" class="chat-icon" />
             <span class="chat-title">{{ session.title }}</span>
+            <button class="chat-delete" @click.stop="requestDeleteAgentSession(session.id)" title="删除会话">
+              <Trash2 :size="12" />
+            </button>
           </div>
           <div class="chat-entry new-session" @click="newAgentSession('default')">
             <Plus :size="14" class="chat-icon" />
@@ -129,6 +132,9 @@
           <Folder :size="12" class="group-icon" />
           <span class="group-title">{{ ws.name }}</span>
           <span class="ws-path">{{ ws.path }}</span>
+          <button class="workspace-delete" @click.stop="requestDeleteWorkspace(ws.id, ws.name)" title="删除工作区">
+            <Trash2 :size="12" />
+          </button>
           <ChevronDown v-if="expandedWorkspaces[ws.id]" :size="12" class="group-chevron" />
           <ChevronRight v-else :size="12" class="group-chevron" />
         </div>
@@ -142,6 +148,9 @@
           >
             <MessageSquare :size="14" class="chat-icon" />
             <span class="chat-title">{{ session.title }}</span>
+            <button class="chat-delete" @click.stop="requestDeleteAgentSession(session.id)" title="删除会话">
+              <Trash2 :size="12" />
+            </button>
           </div>
           <div class="chat-entry new-session" @click="newAgentSession(ws.id)">
             <Plus :size="14" class="chat-icon" />
@@ -187,11 +196,23 @@
       </div>
     </Teleport>
 
+    <Teleport to="body">
+      <div v-if="confirmDialog.visible" class="ctx-overlay" @click="closeConfirmDialog"></div>
+      <div v-if="confirmDialog.visible" class="rename-dialog">
+        <h4>{{ confirmDialog.title }}</h4>
+        <p class="confirm-message">{{ confirmDialog.message }}</p>
+        <div class="rename-actions">
+          <button class="btn btn-ghost btn-sm" @click="closeConfirmDialog">取消</button>
+          <button class="btn btn-danger btn-sm" @click="confirmDangerAction">确认</button>
+        </div>
+      </div>
+    </Teleport>
+
   </nav>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, watch, inject } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useChatStore } from '../stores/chatStore'
 import { useWorkspaceStore } from '../stores/workspaceStore'
@@ -206,6 +227,7 @@ const router = useRouter()
 const chatStore = useChatStore()
 const workspaceStore = useWorkspaceStore()
 const configStore = useConfigStore()
+const showToast = inject<(message: string, type?: 'success' | 'error' | 'info') => void>('showToast', () => {})
 const isCollapsed = ref(false)
 const searchQuery = ref('')
 const activeTab = ref<'chat' | 'agent'>('chat')
@@ -341,6 +363,13 @@ async function deleteChat(chatId: string) {
 // ====== 右键菜单 ======
 const contextMenu = reactive({ visible: false, x: 0, y: 0, chatId: '', chatTitle: '', isPinned: false })
 const renameDialog = reactive({ visible: false, title: '', chatId: '' })
+const confirmDialog = reactive({
+  visible: false,
+  title: '',
+  message: '',
+  action: '' as '' | 'delete-agent-session' | 'delete-workspace',
+  targetId: '',
+})
 
 function showContextMenu(e: MouseEvent, chat: { id: string; title: string; pinned: boolean }) {
   contextMenu.x = e.clientX
@@ -399,6 +428,57 @@ async function forkChat() {
 function deleteChatFromMenu() {
   void deleteChat(contextMenu.chatId)
   contextMenu.visible = false
+}
+
+function requestDeleteAgentSession(sessionId: string) {
+  confirmDialog.visible = true
+  confirmDialog.title = '删除 Agent 会话'
+  confirmDialog.message = '会删除该 Agent 会话的全部历史消息，并从侧边栏移除。'
+  confirmDialog.action = 'delete-agent-session'
+  confirmDialog.targetId = sessionId
+}
+
+function requestDeleteWorkspace(workspaceId: string, workspaceName: string) {
+  const sessionCount = getWorkspaceSessions(workspaceId).length
+  if (sessionCount > 0) {
+    showToast('请先删除该工作区下的 Agent 会话，再删除工作区', 'info')
+    return
+  }
+
+  confirmDialog.visible = true
+  confirmDialog.title = '删除工作区'
+  confirmDialog.message = `将删除工作区「${workspaceName}」配置，但不会删除磁盘上的实际目录。`
+  confirmDialog.action = 'delete-workspace'
+  confirmDialog.targetId = workspaceId
+}
+
+function closeConfirmDialog() {
+  confirmDialog.visible = false
+  confirmDialog.title = ''
+  confirmDialog.message = ''
+  confirmDialog.action = ''
+  confirmDialog.targetId = ''
+}
+
+async function confirmDangerAction() {
+  if (confirmDialog.action === 'delete-agent-session') {
+    const sessionId = confirmDialog.targetId
+    const wasActive = route.path.startsWith('/agent') && route.params.sessionId === sessionId
+    await chatStore.deleteConversation(sessionId)
+    if (wasActive) {
+      const nextSession = chatStore.conversations.find(c => !!c.workspaceId)
+      router.replace(nextSession ? `/agent/${nextSession.id}` : '/agent')
+    }
+    showToast('Agent 会话已删除', 'success')
+  }
+
+  if (confirmDialog.action === 'delete-workspace') {
+    await workspaceStore.removeWorkspace(confirmDialog.targetId)
+    delete expandedWorkspaces[confirmDialog.targetId]
+    showToast('工作区已删除', 'success')
+  }
+
+  closeConfirmDialog()
 }
 </script>
 
@@ -647,6 +727,12 @@ function deleteChatFromMenu() {
   padding: var(--space-lg); box-shadow: var(--shadow-lg); min-width: 320px;
 }
 .rename-dialog h4 { margin: 0 0 var(--space-md); font-size: var(--font-size-md); }
+.confirm-message {
+  margin: 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+}
 .rename-input {
   width: 100%; padding: 8px 12px; border: 1px solid var(--color-border);
   border-radius: var(--radius-md); outline: none; font-size: var(--font-size-sm);
@@ -676,5 +762,32 @@ function deleteChatFromMenu() {
 .add-text {
   color: var(--color-text-tertiary);
   font-style: italic;
+}
+.workspace-delete {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: none;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+}
+.chat-group:hover .workspace-delete {
+  display: inline-flex;
+}
+.workspace-delete:hover {
+  color: var(--color-error);
+  background: var(--color-bg-hover);
+}
+.btn-danger {
+  background: var(--color-error);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
 }
 </style>
