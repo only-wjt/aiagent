@@ -76,6 +76,30 @@ export interface Conversation {
   messages: ChatMessage[]
 }
 
+type LoadedConversationPayload = {
+  id: string
+  title: string
+  model: string
+  provider_id?: string | null
+  workspace_id?: string | null
+  agent_mode?: AgentSessionMode | null
+  enabled_tools?: Record<string, boolean> | null
+  created_at: string
+  updated_at: string
+  messages: Array<{
+    id: string
+    role: string
+    content: Array<{ type: string; text?: string; name?: string; id?: string; image_url?: { url: string } }>
+    created_at: string
+    usage?: string
+    thinking?: string | null
+    thinking_duration?: number | null
+    tool_calls?: PersistedToolCall[] | null
+    tool_call_id?: string | null
+    tool_name?: string | null
+  }>
+}
+
 export const useChatStore = defineStore('chat', () => {
   // ==================== 状态 ====================
 
@@ -113,6 +137,34 @@ export const useChatStore = defineStore('chat', () => {
   function normalizeChatMessageRole(role: string): ChatMessageRole {
     if (role === 'assistant' || role === 'tool') return role
     return 'user'
+  }
+
+  async function fetchConversationPayload(id: string): Promise<LoadedConversationPayload | null> {
+    const invoke = await getTauriInvoke()
+    if (!invoke) return null
+
+    try {
+      return await invoke('cmd_load_conversation', { id }) as LoadedConversationPayload
+    } catch (e) {
+      console.error('[ChatStore] 读取对话快照失败:', e)
+      return null
+    }
+  }
+
+  function mapConversationMessages(payload: LoadedConversationPayload['messages']): ChatMessage[] {
+    return payload.map(m => ({
+      id: m.id,
+      role: normalizeChatMessageRole(m.role),
+      content: m.content.map(b => ({ ...b })),
+      createdAt: m.created_at,
+      usage: m.usage,
+      model: (m as any).model,
+      thinking: m.thinking || undefined,
+      thinkingDuration: m.thinking_duration || undefined,
+      toolCalls: m.tool_calls || undefined,
+      toolCallId: m.tool_call_id || undefined,
+      toolName: m.tool_name || undefined,
+    }))
   }
 
   // ==================== 初始化 ====================
@@ -188,27 +240,9 @@ export const useChatStore = defineStore('chat', () => {
 
   /** 加载指定对话 */
   async function loadConversation (id: string) {
-    const invoke = await getTauriInvoke()
-    if (!invoke) return
     try {
-      const conv = await invoke('cmd_load_conversation', { id }) as {
-        id: string; title: string; model: string;
-        provider_id?: string | null;
-        workspace_id?: string | null;
-        agent_mode?: AgentSessionMode | null;
-        enabled_tools?: Record<string, boolean> | null;
-        created_at: string; updated_at: string;
-        messages: Array<{
-          id: string; role: string;
-          content: Array<{ type: string; text?: string; name?: string; id?: string; image_url?: { url: string } }>;
-          created_at: string; usage?: string;
-          thinking?: string | null;
-          thinking_duration?: number | null;
-          tool_calls?: PersistedToolCall[] | null;
-          tool_call_id?: string | null;
-          tool_name?: string | null;
-        }>;
-      }
+      const conv = await fetchConversationPayload(id)
+      if (!conv) return
 
       currentConversationId.value = conv.id
       currentModel.value = conv.model
@@ -220,21 +254,76 @@ export const useChatStore = defineStore('chat', () => {
         summary.workspaceId = conv.workspace_id || undefined
         summary.providerId = conv.provider_id || undefined
       }
-      messages.value = conv.messages.map(m => ({
-        id: m.id,
-        role: normalizeChatMessageRole(m.role),
-        content: m.content.map(b => ({ ...b })),
-        createdAt: m.created_at,
-        usage: m.usage,
-        model: (m as any).model,
-        thinking: m.thinking || undefined,
-        thinkingDuration: m.thinking_duration || undefined,
-        toolCalls: m.tool_calls || undefined,
-        toolCallId: m.tool_call_id || undefined,
-        toolName: m.tool_name || undefined,
-      }))
+      messages.value = mapConversationMessages(conv.messages)
     } catch (e) {
       console.error('[ChatStore] 加载对话失败:', e)
+    }
+  }
+
+  async function getConversationSnapshot(id: string): Promise<Conversation | null> {
+    const payload = await fetchConversationPayload(id)
+    if (!payload) return null
+
+    return {
+      id: payload.id,
+      title: payload.title,
+      model: payload.model,
+      providerId: payload.provider_id || undefined,
+      workspaceId: payload.workspace_id || undefined,
+      agentMode: payload.agent_mode || undefined,
+      enabledTools: payload.enabled_tools || undefined,
+      createdAt: payload.created_at,
+      updatedAt: payload.updated_at,
+      messages: mapConversationMessages(payload.messages),
+    }
+  }
+
+  async function renameConversation(id: string, title: string): Promise<boolean> {
+    const invoke = await getTauriInvoke()
+    const snapshot = await getConversationSnapshot(id)
+    if (!invoke || !snapshot) return false
+
+    const conversation = {
+      id: snapshot.id,
+      title,
+      model: snapshot.model,
+      provider_id: snapshot.providerId || null,
+      workspace_id: snapshot.workspaceId || null,
+      agent_mode: snapshot.agentMode || null,
+      enabled_tools: snapshot.enabledTools || null,
+      created_at: snapshot.createdAt,
+      updated_at: new Date().toISOString(),
+      messages: snapshot.messages.map(m => ({
+        id: m.id,
+        role: m.role,
+        content: m.content.map(b => ({
+          type: b.type,
+          text: b.text || null,
+          name: b.name || null,
+          id: b.id || null,
+          image_url: b.image_url || null,
+        })),
+        created_at: m.createdAt,
+        usage: m.usage || null,
+        thinking: m.thinking || null,
+        thinking_duration: m.thinkingDuration || null,
+        tool_calls: m.toolCalls || null,
+        tool_call_id: m.toolCallId || null,
+        tool_name: m.toolName || null,
+      })),
+    }
+
+    try {
+      await invoke('cmd_save_conversation', { conversation })
+      const summary = conversations.value.find(c => c.id === id)
+      if (summary) {
+        summary.title = title
+        summary.updatedAt = conversation.updated_at
+      }
+      return true
+    } catch (e) {
+      console.error('[ChatStore] 重命名对话失败:', e)
+      return false
     }
   }
 
@@ -354,6 +443,92 @@ export const useChatStore = defineStore('chat', () => {
     messages.value.push(msg)
   }
 
+  /** 从当前对话或指定对话创建分叉 */
+  async function forkConversation (sourceId: string | null = currentConversationId.value, upToMessageId?: string): Promise<string | null> {
+    if (!sourceId) return null
+
+    const invoke = await getTauriInvoke()
+    if (!invoke) return null
+
+    try {
+      const source = await fetchConversationPayload(sourceId)
+      if (!source) return null
+
+      const allMessages = mapConversationMessages(source.messages)
+      const cutIndex = upToMessageId
+        ? allMessages.findIndex(message => message.id === upToMessageId)
+        : allMessages.length - 1
+      const forkedMessages = allMessages
+        .slice(0, cutIndex >= 0 ? cutIndex + 1 : allMessages.length)
+        .map(message => ({
+          ...message,
+          content: message.content.map(block => ({ ...block })),
+          toolCalls: message.toolCalls?.map(tool => ({ ...tool, args: { ...tool.args } })),
+        }))
+
+      const forkedId = crypto.randomUUID()
+      const now = new Date().toISOString()
+      const forkedTitle = `${source.title || '新对话'} · 分叉`
+      const conversation = {
+        id: forkedId,
+        title: forkedTitle,
+        model: source.model,
+        provider_id: source.provider_id || null,
+        workspace_id: source.workspace_id || null,
+        agent_mode: source.agent_mode || null,
+        enabled_tools: source.enabled_tools || null,
+        created_at: now,
+        updated_at: now,
+        messages: forkedMessages.map(message => ({
+          id: message.id,
+          role: message.role,
+          content: message.content.map(block => ({
+            type: block.type,
+            text: block.text || null,
+            name: block.name || null,
+            id: block.id || null,
+            image_url: block.image_url || null,
+          })),
+          created_at: message.createdAt,
+          usage: message.usage || null,
+          thinking: message.thinking || null,
+          thinking_duration: message.thinkingDuration || null,
+          tool_calls: message.toolCalls || null,
+          tool_call_id: message.toolCallId || null,
+          tool_name: message.toolName || null,
+        })),
+      }
+
+      await invoke('cmd_save_conversation', { conversation })
+
+      currentConversationId.value = forkedId
+      currentModel.value = source.model
+      currentProviderId.value = source.provider_id || null
+      currentAgentMode.value = source.agent_mode || null
+      currentEnabledTools.value = source.enabled_tools || null
+      messages.value = forkedMessages
+
+      const previewMessage = [...forkedMessages].reverse().find(message => message.role !== 'tool')
+        || forkedMessages[forkedMessages.length - 1]
+      conversations.value.unshift({
+        id: forkedId,
+        title: forkedTitle,
+        model: source.model,
+        providerId: source.provider_id || undefined,
+        workspaceId: source.workspace_id || undefined,
+        createdAt: now,
+        updatedAt: now,
+        messageCount: forkedMessages.length,
+        preview: previewMessage?.content.find(block => block.type === 'text')?.text?.slice(0, 80) || '',
+      })
+
+      return forkedId
+    } catch (e) {
+      console.error('[ChatStore] 分叉对话失败:', e)
+      return null
+    }
+  }
+
   /** 清空当前对话（不删除文件，仅清空内存） */
   function clearCurrentMessages () {
     messages.value = []
@@ -418,9 +593,12 @@ export const useChatStore = defineStore('chat', () => {
     loadConversationList,
     createConversation,
     loadConversation,
+    getConversationSnapshot,
+    renameConversation,
     saveCurrentConversation,
     deleteConversation,
     addMessage,
+    forkConversation,
     clearCurrentMessages,
     togglePin,
   }

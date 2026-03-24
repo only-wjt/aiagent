@@ -35,3 +35,15 @@ sidecar/sidecar-binary*
 
 # BitFun snapshot data - auto managed
 .bitfun/
+# ai工作目录
+.adnify
+.bitfun
+.claude
+.conductor
+AGENTS.md
+CLAUDE.md
+CODE_REVIEW.md
+IMPLEMENTATION_SUMMARY.md
+
+# ai中间产物文件夹
+aidoc/

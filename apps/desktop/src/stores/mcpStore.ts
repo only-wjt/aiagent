@@ -58,7 +58,9 @@ export const useMcpStore = defineStore('mcp', () => {
 
   async function save () {
     const invoke = await getTauriInvoke()
-    if (!invoke) return
+    if (!invoke) {
+      throw new Error('Tauri not available')
+    }
     try {
       await invoke('cmd_write_json', {
         filename: 'mcp_tools.json',
@@ -66,6 +68,7 @@ export const useMcpStore = defineStore('mcp', () => {
       })
     } catch (e) {
       console.error('[McpStore] 保存失败:', e)
+      throw e
     }
   }
 

@@ -8,7 +8,7 @@
         <span class="ws-path-label">{{ agentStore.currentWorkspace }}</span>
       </div>
       <div class="agent-actions">
-        <button class="btn btn-sm btn-ghost" @click="agentStore.clearMessages()" title="清空">
+        <button class="btn btn-sm btn-ghost" @click="requestClearMessages" title="清空">
           <Trash2 :size="14" /> 清空
         </button>
       </div>
@@ -236,11 +236,21 @@
       <!-- 点击外部关闭弹窗 -->
       <div v-if="showModeMenu || showToolMenu" class="popup-overlay" @click="showModeMenu = false; showToolMenu = false"></div>
     </div>
+    <div v-if="showClearDialog" class="confirm-overlay" @click.self="showClearDialog = false">
+      <div class="confirm-modal card">
+        <h3 class="confirm-title">清空当前 Agent 会话</h3>
+        <p class="confirm-desc">会清除当前 Agent 会话中的消息记录，并立即同步到本地持久化数据。</p>
+        <div class="confirm-actions">
+          <button class="btn btn-ghost" @click="showClearDialog = false">取消</button>
+          <button class="btn btn-danger" @click="confirmClearMessages">确认清空</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, watch } from 'vue'
+import { ref, computed, nextTick, watch, inject } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAgentStore, TOOL_META, type PermissionMode } from '../stores/agentStore'
 import { renderMarkdown } from '../utils/markdown'
@@ -266,6 +276,8 @@ const showToolMenu = ref(false)
 const messagesContainer = ref<HTMLElement>()
 const inputRef = ref<HTMLTextAreaElement>()
 const hydratingPersistedSession = ref(false)
+const showClearDialog = ref(false)
+const showToast = inject<(message: string, type?: 'success' | 'error' | 'info') => void>('showToast', () => {})
 
 // 会话模式配置
 const modeConfig: Record<PermissionMode, { label: string; desc: string; icon: any; color: string }> = {
@@ -332,6 +344,18 @@ function handleSend(e?: Event) {
   inputText.value = ''
   if (inputRef.value) inputRef.value.style.height = 'auto'
   agentStore.sendMessage(text)
+}
+
+function requestClearMessages() {
+  if (agentStore.messages.length === 0) return
+  showClearDialog.value = true
+}
+
+function confirmClearMessages() {
+  agentStore.clearMessages()
+  showClearDialog.value = false
+  syncAgentMessagesToChatStore()
+  showToast('Agent 会话已清空', 'success')
 }
 
 // 自动调整输入框高度
@@ -995,6 +1019,52 @@ watch(() => agentStore.enabledTools, () => {
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
   z-index: 150;
+}
+
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(2px);
+}
+
+.confirm-modal {
+  width: min(420px, calc(100vw - 32px));
+  padding: var(--space-xl);
+}
+
+.confirm-title {
+  margin: 0 0 var(--space-sm);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.confirm-desc {
+  margin: 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  margin-top: var(--space-lg);
+}
+
+.btn-danger {
+  background: var(--color-error);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  padding: 6px 12px;
 }
 
 /* 弹窗动画 */

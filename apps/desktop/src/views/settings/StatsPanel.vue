@@ -7,53 +7,53 @@
 
     <!-- 概览卡片 -->
     <div class="stats-grid">
-      <div class="stat-card card">
+      <button class="stat-card card stat-card-button" @click="openLatestConversation">
         <div class="stat-icon"><MessageSquare :size="24" stroke-width="1.5" /></div>
         <div class="stat-body">
           <span class="stat-value">{{ totalConversations }}</span>
           <span class="stat-label">总对话数</span>
         </div>
-      </div>
+      </button>
 
-      <div class="stat-card card">
+      <button class="stat-card card stat-card-button" @click="openLatestConversation">
         <div class="stat-icon"><Mail :size="24" stroke-width="1.5" /></div>
         <div class="stat-body">
           <span class="stat-value">{{ totalMessages }}</span>
           <span class="stat-label">总消息数</span>
         </div>
-      </div>
+      </button>
 
-      <div class="stat-card card">
+      <button class="stat-card card stat-card-button" @click="router.push('/settings/skills')">
         <div class="stat-icon"><Zap :size="24" stroke-width="1.5" /></div>
         <div class="stat-body">
           <span class="stat-value">{{ activeSkillCount }}</span>
           <span class="stat-label">启用技能</span>
         </div>
-      </div>
+      </button>
 
-      <div class="stat-card card">
+      <button class="stat-card card stat-card-button" @click="router.push('/settings/mcp')">
         <div class="stat-icon"><Wrench :size="24" stroke-width="1.5" /></div>
         <div class="stat-body">
           <span class="stat-value">{{ enabledToolCount }}</span>
           <span class="stat-label">启用工具</span>
         </div>
-      </div>
+      </button>
 
-      <div class="stat-card card">
+      <button class="stat-card card stat-card-button" @click="router.push('/settings')">
         <div class="stat-icon"><Bot :size="24" stroke-width="1.5" /></div>
         <div class="stat-body">
           <span class="stat-value">{{ mostUsedModel }}</span>
           <span class="stat-label">最常用模型</span>
         </div>
-      </div>
+      </button>
 
-      <div class="stat-card card">
+      <button class="stat-card card stat-card-button" @click="openLatestConversation">
         <div class="stat-icon"><TrendingUp :size="24" stroke-width="1.5" /></div>
         <div class="stat-body">
           <span class="stat-value">{{ avgMessagesPerConv }}</span>
           <span class="stat-label">平均消息数/对话</span>
         </div>
-      </div>
+      </button>
     </div>
 
     <!-- 最近对话 -->
@@ -63,7 +63,8 @@
         <div
           v-for="conv in recentConversations"
           :key="conv.id"
-          class="recent-item card"
+          class="recent-item card recent-item-button"
+          @click="openConversation(conv.id, conv.workspaceId)"
         >
           <div class="recent-main">
             <span class="recent-title">{{ conv.title || '新对话' }}</span>
@@ -85,11 +86,13 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useChatStore } from '../../stores/chatStore'
 import { useSkillStore } from '../../stores/skillStore'
 import { useMcpStore } from '../../stores/mcpStore'
 import { MessageSquare, Mail, Zap, Wrench, Bot, TrendingUp, BarChart3 } from 'lucide-vue-next'
 
+const router = useRouter()
 const chatStore = useChatStore()
 const skillStore = useSkillStore()
 const mcpStore = useMcpStore()
@@ -130,8 +133,20 @@ const avgMessagesPerConv = computed(() => {
 })
 
 const recentConversations = computed(() =>
-  chatStore.conversations.slice(0, 10)
+  [...chatStore.conversations]
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    .slice(0, 10)
 )
+
+function openConversation(id: string, workspaceId?: string) {
+  router.push(workspaceId ? `/agent/${id}` : `/chat/${id}`)
+}
+
+function openLatestConversation() {
+  const latestConversation = recentConversations.value[0]
+  if (!latestConversation) return
+  openConversation(latestConversation.id, latestConversation.workspaceId)
+}
 </script>
 
 <style scoped>
@@ -154,6 +169,13 @@ const recentConversations = computed(() =>
   transition: all var(--transition-normal);
 }
 .stat-card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
+.stat-card-button {
+  width: 100%;
+  border: 1px solid var(--color-border-light);
+  background: var(--color-bg-card);
+  text-align: left;
+  cursor: pointer;
+}
 
 .stat-icon {
   width: 52px;
@@ -176,6 +198,13 @@ const recentConversations = computed(() =>
 .recent-list { display: flex; flex-direction: column; gap: var(--space-sm); }
 .recent-item { padding: var(--space-md); transition: all var(--transition-normal); }
 .recent-item:hover { box-shadow: var(--shadow-md); }
+.recent-item-button {
+  width: 100%;
+  border: 1px solid var(--color-border-light);
+  background: var(--color-bg-card);
+  text-align: left;
+  cursor: pointer;
+}
 .recent-main { display: flex; align-items: center; gap: var(--space-sm); margin-bottom: var(--space-xs); }
 .recent-title { font-weight: 500; font-size: var(--font-size-sm); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .recent-model { font-size: 10px; }

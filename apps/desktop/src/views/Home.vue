@@ -74,7 +74,7 @@
           <div class="workspace-icon"><Bot :size="24" stroke-width="1.5" /></div>
           <div class="workspace-info">
             <h3 class="workspace-name">默认工作区</h3>
-            <p class="workspace-path">~/Documents/aiagent</p>
+            <p class="workspace-path">{{ defaultWorkspacePath }}</p>
           </div>
         </div>
 
@@ -124,7 +124,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, inject } from 'vue'
 import { useRouter } from 'vue-router'
 import { useChatStore } from '../stores/chatStore'
 import { useConfigStore } from '../stores/configStore'
@@ -135,6 +135,7 @@ const router = useRouter()
 const chatStore = useChatStore()
 const configStore = useConfigStore()
 const workspaceStore = useWorkspaceStore()
+const showToast = inject<(message: string, type?: 'success' | 'error' | 'info') => void>('showToast', () => {})
 const quickPrompt = ref('')
 const showNewWorkspace = ref(false)
 const newWs = reactive({ name: '', path: '' })
@@ -150,23 +151,23 @@ const selectedModelLabel = computed(() => {
   )
   return selected?.name || selectedModel.value || '选择模型'
 })
+const defaultWorkspacePath = computed(() => configStore.appConfig.defaultWorkspacePath || '~')
 
 // 最近 5 个对话（不再使用）
 // const recentConversations = computed(() => chatStore.conversations.slice(0, 5))
 
 function startChat() {
   const prompt = quickPrompt.value.trim()
-  if (!prompt) {
-    router.push('/chat')
-    return
-  }
-
   const sessionId = chatStore.createConversation(
     selectedModel.value,
     undefined,
     selectedProviderId.value || undefined,
   )
-  sessionStorage.setItem('quickPrompt', prompt)
+  if (prompt) {
+    sessionStorage.setItem('quickPrompt', prompt)
+  } else {
+    sessionStorage.removeItem('quickPrompt')
+  }
   quickPrompt.value = ''
   router.push(`/chat/${sessionId}`)
 }
@@ -183,11 +184,27 @@ function quickAction(prompt: string) {
 }
 
 async function createWorkspace() {
-  if (!newWs.name.trim()) return
-  await workspaceStore.addWorkspace(newWs.name, newWs.path)
-  newWs.name = ''
-  newWs.path = ''
-  showNewWorkspace.value = false
+  const name = newWs.name.trim()
+  const path = newWs.path.trim() || '~'
+  if (!name) return
+  if (workspaceStore.workspaces.some(ws => ws.name.trim().toLowerCase() === name.toLowerCase())) {
+    showToast('工作区名称已存在', 'error')
+    return
+  }
+  if (workspaceStore.workspaces.some(ws => ws.path.trim() === path)) {
+    showToast('该路径已被其他工作区使用', 'error')
+    return
+  }
+  try {
+    await workspaceStore.addWorkspace(name, path)
+    newWs.name = ''
+    newWs.path = ''
+    showNewWorkspace.value = false
+    showToast('工作区已创建', 'success')
+  } catch (error) {
+    console.error('[Home] 创建工作区失败:', error)
+    showToast('工作区创建失败', 'error')
+  }
 }
 
 function openWorkspace(id: string) {
