@@ -14,12 +14,7 @@
       >Agent</button>
     </div>
 
-    <!-- + 新对话 按钮 -->
-    <div v-if="!isCollapsed" class="new-chat-row">
-      <button class="btn-new-chat" @click="activeTab === 'agent' ? newAgentSession('default') : newChat()">
-        <Plus :size="14" /> 新对话
-      </button>
-    </div>
+
 
     <!-- 搜索框 -->
     <div v-if="!isCollapsed && activeTab === 'chat'" class="search-box">
@@ -217,6 +212,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useChatStore } from '../stores/chatStore'
 import { useWorkspaceStore } from '../stores/workspaceStore'
 import { useConfigStore } from '../stores/configStore'
+import { useTabStore } from '../stores/tabStore'
 import {
   MessageSquare, ChevronLeft, ChevronRight, ChevronDown,
   Plus, Trash2, Search, Edit3, Download, Pin, Bot, Folder, GitBranch,
@@ -227,10 +223,12 @@ const router = useRouter()
 const chatStore = useChatStore()
 const workspaceStore = useWorkspaceStore()
 const configStore = useConfigStore()
+const tabStore = useTabStore()
 const showToast = inject<(message: string, type?: 'success' | 'error' | 'info') => void>('showToast', () => {})
 const isCollapsed = ref(false)
 const searchQuery = ref('')
-const activeTab = ref<'chat' | 'agent'>('chat')
+// 侧边栏 tab 状态从 tabStore 共享，让标题栏+号按钮能联动
+const activeTab = computed(() => tabStore.sidebarActiveTab)
 const pinnedExpanded = ref(true)
 const defaultWorkspacePath = computed(() => configStore.appConfig.defaultWorkspacePath || '~')
 
@@ -262,17 +260,23 @@ function newAgentSession(wsId: string) {
 }
 
 function openAgentSession(sessionId: string) {
-  chatStore.loadConversation(sessionId)
+  // 不调用 chatStore.loadConversation，Agent 页面自己通过 agentStore.loadSession 加载
   router.push(`/agent/${sessionId}`)
 }
 
-// 切换 Tab
+// 切换 Tab（通过 tabStore 共享状态，让标题栏+号按钮联动）
 function switchTab(tab: 'chat' | 'agent') {
-  activeTab.value = tab
+  tabStore.setSidebarTab(tab)
   if (tab === 'agent') {
     router.push(activeAgentSession.value ? `/agent/${activeAgentSession.value}` : '/agent')
   } else {
-    const currentChatId = chatStore.currentConversation?.workspaceId ? null : chatStore.currentConversationId
+    // 切到 Chat 时，清空 chatStore 中可能残留的 Agent 会话数据
+    const currentConv = chatStore.currentConversation
+    const currentChatId = (currentConv?.workspaceId) ? null : chatStore.currentConversationId
+    if (!currentChatId) {
+      chatStore.currentConversationId = null
+      chatStore.messages = []
+    }
     router.push(currentChatId ? `/chat/${currentChatId}` : '/chat')
   }
 }
@@ -331,9 +335,11 @@ const groupedChats = computed(() => {
 const currentChatId = computed(() => chatStore.currentConversationId)
 
 watch(() => route.path, (path) => {
-  activeTab.value = (path === '/' || path.startsWith('/settings') || path.startsWith('/agent'))
-    ? 'agent'
-    : 'chat'
+  tabStore.setSidebarTab(
+    (path === '/' || path.startsWith('/settings') || path.startsWith('/agent'))
+      ? 'agent'
+      : 'chat'
+  )
 }, { immediate: true })
 
 function toggleCollapse() {
@@ -342,7 +348,7 @@ function toggleCollapse() {
 
 function newChat() {
   const id = chatStore.createConversation()
-  activeTab.value = 'chat'
+  tabStore.setSidebarTab('chat')
   router.push(`/chat/${id}`)
 }
 
@@ -527,31 +533,7 @@ async function confirmDangerAction() {
   font-weight: 600;
 }
 
-/* ===== 新对话按钮 ===== */
-.new-chat-row {
-  padding: 0 var(--space-xs);
-  margin-bottom: var(--space-sm);
-}
-.btn-new-chat {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-  width: 100%;
-  padding: 8px 12px;
-  background: none;
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius-md);
-  font-family: var(--font-sans);
-  font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-.btn-new-chat:hover {
-  border-color: var(--color-primary);
-  color: var(--color-primary);
-  background: var(--color-primary-bg);
-}
+
 
 /* ===== 搜索框 ===== */
 .search-box {

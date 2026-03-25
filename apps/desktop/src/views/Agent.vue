@@ -254,7 +254,7 @@ import { ref, computed, nextTick, watch, inject } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAgentStore, TOOL_META, type PermissionMode } from '../stores/agentStore'
 import { renderMarkdown } from '../utils/markdown'
-import { useChatStore, type PersistedToolCall } from '../stores/chatStore'
+import { useChatStore } from '../stores/chatStore'
 import { useConfigStore } from '../stores/configStore'
 import { useWorkspaceStore } from '../stores/workspaceStore'
 import {
@@ -275,7 +275,6 @@ const showModeMenu = ref(false)
 const showToolMenu = ref(false)
 const messagesContainer = ref<HTMLElement>()
 const inputRef = ref<HTMLTextAreaElement>()
-const hydratingPersistedSession = ref(false)
 const showClearDialog = ref(false)
 const showToast = inject<(message: string, type?: 'success' | 'error' | 'info') => void>('showToast', () => {})
 
@@ -299,18 +298,24 @@ const toolDescriptions: Record<string, string> = {
 
 // 工作区名称
 const workspaceName = computed(() => {
-  const workspaceId = chatStore.currentConversation?.workspaceId
-  if (!workspaceId || workspaceId === 'default') return '默认工作区'
-  const ws = workspaceStore.workspaces.find(w => w.id === workspaceId)
+  const wsPath = agentStore.currentWorkspace
+  if (!wsPath || wsPath === '~') return '默认工作区'
+  const ws = workspaceStore.workspaces.find(w => w.path === wsPath)
   return ws?.name || '默认工作区'
 })
 
 // 可用模型
 const availableModels = computed(() => configStore.allEnabledModels())
 
-// 过滤掉 tool 角色消息（结果已在卡片中展示）
+// 过滤掉 tool 角色消息（结果已在卡片中展示）以及内容为空的助手消息
 const visibleMessages = computed(() =>
-  agentStore.messages.filter(m => m.role !== 'tool')
+  agentStore.messages.filter(m => {
+    // 过滤 tool 消息
+    if (m.role === 'tool') return false
+    // 过滤 content 为空且非流式中的助手消息（避免空气泡）
+    if (m.role === 'assistant' && !m.content && agentStore.streamingMsgId !== m.id && (!m.toolCalls || m.toolCalls.length === 0)) return false
+    return true
+  })
 )
 
 // 获取工具元信息
@@ -354,7 +359,9 @@ function requestClearMessages() {
 function confirmClearMessages() {
   agentStore.clearMessages()
   showClearDialog.value = false
-  syncAgentMessagesToChatStore()
+  agentStore.saveSession()
+  // 刷新侧边栏列表
+  chatStore.loadConversationList()
   showToast('Agent 会话已清空', 'success')
 }
 
@@ -378,58 +385,6 @@ function scrollToBottom() {
 watch(() => agentStore.messages.length, scrollToBottom)
 watch(() => agentStore.updateTick, scrollToBottom)
 
-function syncAgentMessagesToChatStore() {
-  if (hydratingPersistedSession.value) return
-  const sessionId = route.params.sessionId as string | undefined
-  if (!sessionId || chatStore.currentConversationId !== sessionId) return
-
-  syncAgentSessionSettingsToChatStore(false)
-  chatStore.currentModel = agentStore.currentModel
-  chatStore.messages = agentStore.messages.map(m => ({
-    id: m.id,
-    role: m.role,
-    content: m.content ? [{ type: 'text', text: m.content }] : [],
-    createdAt: m.createdAt,
-    model: m.role === 'assistant' ? agentStore.currentModel : undefined,
-    thinking: m.thinking,
-    thinkingDuration: m.thinkingDuration,
-    toolCalls: m.toolCalls?.map(tc => ({
-      ...tc,
-      args: { ...tc.args },
-    })) as PersistedToolCall[] | undefined,
-    toolCallId: m.toolCallId,
-    toolName: m.toolName,
-  }))
-  void chatStore.saveCurrentConversation()
-}
-
-function syncAgentSessionSettingsToChatStore(shouldSave: boolean = true) {
-  if (hydratingPersistedSession.value) return
-  const sessionId = route.params.sessionId as string | undefined
-  if (!sessionId || chatStore.currentConversationId !== sessionId) return
-
-  chatStore.currentModel = agentStore.currentModel
-  chatStore.currentProviderId = agentStore.currentProviderId
-  chatStore.currentAgentMode = agentStore.permissionMode
-  chatStore.currentEnabledTools = { ...agentStore.enabledTools }
-
-  if (shouldSave) {
-    void chatStore.saveCurrentConversation()
-  }
-}
-
-watch(() => agentStore.isProcessing, (isProcessing, wasProcessing) => {
-  if (wasProcessing && !isProcessing) {
-    syncAgentMessagesToChatStore()
-  }
-})
-
-watch(() => agentStore.messages.length, () => {
-  if (!agentStore.isProcessing) {
-    syncAgentMessagesToChatStore()
-  }
-})
-
 function resolveWorkspacePath(workspaceId?: string) {
   if (!workspaceId || workspaceId === 'default') {
     return configStore.appConfig.defaultWorkspacePath || '~'
@@ -437,49 +392,30 @@ function resolveWorkspacePath(workspaceId?: string) {
   return workspaceStore.workspaces.find(w => w.id === workspaceId)?.path || configStore.appConfig.defaultWorkspacePath || '~'
 }
 
+/** 从路由同步 Agent 会话（直接通过 agentStore 加载，不经过 chatStore） */
 async function syncAgentSessionFromRoute() {
   const sessionId = route.params.sessionId as string | undefined
   if (agentStore.isProcessing) {
     agentStore.stopProcessing()
   }
-  if (sessionId && chatStore.currentConversationId !== sessionId) {
-    await chatStore.loadConversation(sessionId)
+  if (!sessionId) return
+
+  if (agentStore.currentSessionId !== sessionId) {
+    await agentStore.loadSession(sessionId)
+
+    // 查找 workspaceId 并解析工作区路径
+    const conv = chatStore.conversations.find(c => c.id === sessionId)
+    const wsId = conv?.workspaceId || 'default'
+    agentStore.setSessionWorkspaceId(wsId)
+    agentStore.setWorkspace(resolveWorkspacePath(wsId))
   }
 
-  hydratingPersistedSession.value = true
-  try {
-    agentStore.setWorkspace(resolveWorkspacePath(chatStore.currentConversation?.workspaceId))
-    agentStore.replaceMessages(chatStore.messages.map(m => ({
-      id: m.id,
-      role: m.role,
-      content: m.content
-        .filter(block => block.type === 'text')
-        .map(block => block.text || '')
-        .join(''),
-      createdAt: m.createdAt,
-      thinking: m.thinking,
-      thinkingDuration: m.thinkingDuration,
-      toolCalls: m.toolCalls?.map(tc => ({
-        ...tc,
-        args: { ...tc.args },
-      })),
-      toolCallId: m.toolCallId,
-      toolName: m.toolName,
-    })))
-
-    agentStore.setPermissionMode(chatStore.currentAgentMode || 'autonomous')
-    agentStore.setEnabledTools(chatStore.currentEnabledTools)
-
-    if (chatStore.currentModel) {
-      agentStore.setModel(chatStore.currentModel, chatStore.currentProviderId)
-    } else {
-      const models = configStore.allEnabledModels()
-      if (models.length > 0 && !agentStore.currentModel) {
-        agentStore.setModel(models[0].id, models[0].providerId)
-      }
+  // 确保有默认模型
+  if (!agentStore.currentModel) {
+    const models = configStore.allEnabledModels()
+    if (models.length > 0) {
+      agentStore.setModel(models[0].id, models[0].providerId)
     }
-  } finally {
-    hydratingPersistedSession.value = false
   }
 }
 
@@ -487,21 +423,28 @@ watch(() => route.params.sessionId, () => {
   void syncAgentSessionFromRoute()
 }, { immediate: true })
 
-watch(() => agentStore.currentModel, () => {
-  syncAgentSessionSettingsToChatStore()
+// Agent 处理完成后自动保存
+watch(() => agentStore.isProcessing, (isProcessing, wasProcessing) => {
+  if (wasProcessing && !isProcessing) {
+    agentStore.saveSession()
+    // 刷新侧边栏列表
+    chatStore.loadConversationList()
+  }
 })
 
-watch(() => agentStore.currentProviderId, () => {
-  syncAgentSessionSettingsToChatStore()
+// 消息数量变化时保存会话
+watch(() => agentStore.messages.length, () => {
+  if (!agentStore.isProcessing) {
+    agentStore.saveSession()
+    chatStore.loadConversationList()
+  }
 })
 
-watch(() => agentStore.permissionMode, () => {
-  syncAgentSessionSettingsToChatStore()
-})
-
-watch(() => agentStore.enabledTools, () => {
-  syncAgentSessionSettingsToChatStore()
-}, { deep: true })
+// 设置变化时保存
+watch(() => agentStore.currentModel, () => { agentStore.saveSession() })
+watch(() => agentStore.currentProviderId, () => { agentStore.saveSession() })
+watch(() => agentStore.permissionMode, () => { agentStore.saveSession() })
+watch(() => agentStore.enabledTools, () => { agentStore.saveSession() }, { deep: true })
 </script>
 
 <style scoped>
@@ -561,24 +504,27 @@ watch(() => agentStore.enabledTools, () => {
   color: var(--color-text-secondary);
 }
 
-/* ===== 消息行 ===== */
+/* ===== 消息行（对齐 Chat 页面风格） ===== */
 .msg-row {
   display: flex;
-  gap: 10px;
-  margin-bottom: 20px;
+  gap: var(--space-sm);
+  padding: var(--space-sm) 0;
   align-items: flex-start;
+  max-width: 800px;
+  margin: 0 auto;
 }
 .msg-row-user { justify-content: flex-end; }
 .msg-row-assistant { justify-content: flex-start; }
 
 .msg-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  margin-top: 20px;
 }
 .bot-avatar {
   background: var(--color-primary-bg, rgba(99,102,241,0.1));
@@ -590,21 +536,21 @@ watch(() => agentStore.enabledTools, () => {
 }
 
 .msg-content-wrap {
-  max-width: 80%;
+  max-width: 75%;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  position: relative;
 }
 
 .msg-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
+  gap: var(--space-sm);
+  padding: 0 var(--space-xs);
+  margin-bottom: 2px;
 }
-.msg-sender { font-weight: 600; color: var(--color-text-secondary); }
-.msg-time { color: var(--color-text-tertiary); }
+.msg-sender { font-size: 12px; font-weight: 600; color: var(--color-text-secondary); }
+.msg-time { font-size: 11px; color: var(--color-text-tertiary); }
 .msg-meta {
   font-size: 11px;
   color: var(--color-text-tertiary);
@@ -612,24 +558,26 @@ watch(() => agentStore.enabledTools, () => {
   padding-right: 4px;
 }
 
-/* 消息气泡 */
+/* 消息气泡（对齐 Chat 页面） */
 .msg-bubble {
-  padding: 10px 14px;
+  position: relative;
+  padding: var(--space-md);
   border-radius: var(--radius-lg);
-  font-size: var(--font-size-sm);
-  line-height: 1.6;
+  line-height: 1.7;
   word-break: break-word;
 }
 .user-bubble {
   background: var(--color-primary);
-  color: white;
-  border-bottom-right-radius: 4px;
+  color: var(--color-text-inverse, white);
+  border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg);
+  box-shadow: var(--shadow-sm);
 }
 .assistant-bubble {
   background: var(--color-bg-card);
   color: var(--color-text-primary);
   border: 1px solid var(--color-border-light);
-  border-bottom-left-radius: 4px;
+  border-radius: var(--radius-lg) var(--radius-lg) var(--radius-lg) var(--radius-sm);
+  box-shadow: var(--shadow-card, none);
 }
 
 /* 思考徽章 */

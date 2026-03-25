@@ -21,6 +21,13 @@ export const useTabStore = defineStore('tab', () => {
 
   const activeTabId = ref<string>('home')
 
+  // 侧边栏当前激活的 tab 类型（chat / agent），供标题栏+号按钮联动
+  const sidebarActiveTab = ref<'chat' | 'agent'>('agent')
+
+  function setSidebarTab(tab: 'chat' | 'agent') {
+    sidebarActiveTab.value = tab
+  }
+
   const activeTab = computed(() => tabs.value.find(t => t.id === activeTabId.value))
 
   function addTab(route: string, title: string): string {
@@ -73,11 +80,13 @@ export const useTabStore = defineStore('tab', () => {
     tabs,
     activeTabId,
     activeTab,
+    sidebarActiveTab,
     addTab,
     closeTab,
     activateTab,
     updateTabTitle,
     updateTabRoute,
     openChatTab,
+    setSidebarTab,
   }
 })

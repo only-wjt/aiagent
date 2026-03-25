@@ -87,12 +87,21 @@ const activeTabId = computed({
   set: (id) => tabStore.activateTab(id),
 })
 
-/** 新建 Tab：创建新对话并切换 */
+/** 新建 Tab：根据侧边栏当前 tab 类型创建对应的对话 */
 function addTab() {
-  const convId = chatStore.createConversation()
-  const tabId = tabStore.addTab(`/chat/${convId}`, '新对话')
-  tabConvMap.value[tabId] = convId
-  router.push(`/chat/${convId}`)
+  if (tabStore.sidebarActiveTab === 'agent') {
+    // Agent 模式：创建带 workspaceId 的会话
+    const convId = chatStore.createConversation(undefined, 'default')
+    const tabId = tabStore.addTab(`/agent/${convId}`, '新会话')
+    tabConvMap.value[tabId] = convId
+    router.push(`/agent/${convId}`)
+  } else {
+    // Chat 模式：创建普通对话
+    const convId = chatStore.createConversation()
+    const tabId = tabStore.addTab(`/chat/${convId}`, '新对话')
+    tabConvMap.value[tabId] = convId
+    router.push(`/chat/${convId}`)
+  }
 }
 
 /** 关闭 Tab：不删除对话，只移除标签页 */
