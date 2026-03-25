@@ -181,6 +181,8 @@ export const useAgentStore = defineStore('agent', () => {
   const currentProviderId = ref<string | null>(null)
   const permissionMode = ref<PermissionMode>('autonomous')
   const abortController = ref<AbortController | null>(null)
+  /** 当前 Agent 会话 ID（与 chatStore 中的 conversationId 对应同一个文件） */
+  const currentSessionId = ref<string | null>(null)
   /** 当前正在流式输出的消息 ID（用于 UI 显示打字光标） */
   const streamingMsgId = ref<string | null>(null)
   /** 流式更新计数器（每次变化触发 UI 滚动） */
@@ -191,6 +193,8 @@ export const useAgentStore = defineStore('agent', () => {
   const pendingToolCall = ref<{ toolCall: ToolCall; messageId: string } | null>(null)
   /** 用户确认/拒绝的Promise resolve */
   let confirmResolve: ((approved: boolean) => void) | null = null
+  /** 保存防抖定时器 */
+  let agentSaveTimer: ReturnType<typeof setTimeout> | null = null
 
   async function waitForSidecarReady (baseUrl: string, retries: number = 8, delayMs: number = 250): Promise<boolean> {
     for (let attempt = 0; attempt < retries; attempt++) {
@@ -744,6 +748,124 @@ export const useAgentStore = defineStore('agent', () => {
     messages.value = nextMessages
   }
 
+  // ==================== 独立持久化 ====================
+
+  /** 从文件系统加载 Agent 会话（直接调用 Tauri IPC，不经过 chatStore） */
+  async function loadSession(sessionId: string) {
+    const invoke = await getTauriInvoke()
+    if (!invoke) return
+
+    try {
+      const conv = await invoke('cmd_load_conversation', { id: sessionId }) as {
+        id: string; title: string; model: string;
+        provider_id?: string | null; workspace_id?: string | null;
+        agent_mode?: string | null; enabled_tools?: Record<string, boolean> | null;
+        messages: Array<{
+          id: string; role: string; content: Array<{ type: string; text?: string }>;
+          created_at: string; thinking?: string | null; thinking_duration?: number | null;
+          tool_calls?: ToolCall[] | null; tool_call_id?: string | null; tool_name?: string | null;
+        }>
+      }
+      if (!conv) return
+
+      currentSessionId.value = conv.id
+      currentModel.value = conv.model || currentModel.value
+      currentProviderId.value = conv.provider_id || currentProviderId.value
+      permissionMode.value = (conv.agent_mode as PermissionMode) || 'autonomous'
+      enabledTools.value = { ...DEFAULT_ENABLED_TOOLS, ...(conv.enabled_tools || {}) }
+
+      // 解析工作区路径
+      const workspaceId = conv.workspace_id
+      if (workspaceId && workspaceId !== 'default') {
+        // 从 configStore/workspaceStore 找真实路径 — 由调用方传入
+      }
+
+      // 映射消息
+      messages.value = conv.messages.map(m => ({
+        id: m.id,
+        role: m.role as AgentMessage['role'],
+        content: m.content
+          .filter(b => b.type === 'text')
+          .map(b => b.text || '')
+          .join(''),
+        createdAt: m.created_at,
+        thinking: m.thinking || undefined,
+        thinkingDuration: m.thinking_duration || undefined,
+        toolCalls: m.tool_calls || undefined,
+        toolCallId: m.tool_call_id || undefined,
+        toolName: m.tool_name || undefined,
+      }))
+    } catch (e) {
+      console.error('[AgentStore] 加载会话失败:', e)
+    }
+  }
+
+  /** 保存当前 Agent 会话到文件系统（防抖 500ms） */
+  function saveSession() {
+    if (agentSaveTimer) clearTimeout(agentSaveTimer)
+    agentSaveTimer = setTimeout(() => _doSaveSession(), 500)
+  }
+
+  /** 实际执行保存 */
+  async function _doSaveSession() {
+    const invoke = await getTauriInvoke()
+    if (!invoke || !currentSessionId.value) return
+
+    try {
+      // 自动标题：取首条用户消息前 30 字
+      let title = '新会话'
+      const firstUserMsg = messages.value.find(m => m.role === 'user')
+      if (firstUserMsg) {
+        title = firstUserMsg.content.length > 30
+          ? firstUserMsg.content.slice(0, 30) + '…'
+          : firstUserMsg.content || '新会话'
+      }
+
+      const now = new Date().toISOString()
+
+      const conversation = {
+        id: currentSessionId.value,
+        title,
+        model: currentModel.value,
+        provider_id: currentProviderId.value || null,
+        workspace_id: currentWorkspace.value ? _resolveWorkspaceId() : null,
+        agent_mode: permissionMode.value,
+        enabled_tools: enabledTools.value,
+        created_at: now, // 简化处理
+        updated_at: now,
+        messages: messages.value.map(m => ({
+          id: m.id,
+          role: m.role,
+          content: [{ type: 'text', text: m.content || null, name: null, id: null, image_url: null }],
+          created_at: m.createdAt,
+          usage: null,
+          thinking: m.thinking || null,
+          thinking_duration: m.thinkingDuration || null,
+          tool_calls: m.toolCalls || null,
+          tool_call_id: m.toolCallId || null,
+          tool_name: m.toolName || null,
+        })),
+      }
+
+      await invoke('cmd_save_conversation', { conversation })
+    } catch (e) {
+      console.error('[AgentStore] 保存会话失败:', e)
+    }
+  }
+
+  /** 根据工作区路径反查 workspaceId（简便实现） */
+  function _resolveWorkspaceId(): string | null {
+    // 需要外部传入或从保存的数据中维护
+    // 这里暂时返回 sessionId 关联的 workspaceId（由 loadSession 或创建时设置）
+    return _cachedWorkspaceId
+  }
+  let _cachedWorkspaceId: string | null = null
+
+  /** 设置当前会话关联的工作区 ID */
+  function setSessionWorkspaceId(wsId: string | null) {
+    _cachedWorkspaceId = wsId
+  }
+
   /** 设置工作区 */
   function setWorkspace(path: string) {
     currentWorkspace.value = path
@@ -797,6 +919,7 @@ export const useAgentStore = defineStore('agent', () => {
     currentModel,
     currentProviderId,
     permissionMode,
+    currentSessionId,
     streamingMsgId,
     updateTick,
     enabledTools,
@@ -812,6 +935,9 @@ export const useAgentStore = defineStore('agent', () => {
     setEnabledTools,
     approveToolCall,
     rejectToolCall,
+    loadSession,
+    saveSession,
+    setSessionWorkspaceId,
     AGENT_TOOLS,
   }
 })

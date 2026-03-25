@@ -222,23 +222,6 @@
       </div>
     </div>
 
-    <!-- 工具执行确认对话框 (action 模式) -->
-    <div v-if="pendingToolCall" class="tool-approval-modal">
-      <div class="modal-overlay" @click="rejectPendingTool"></div>
-      <div class="modal-content">
-        <h3>确认工具执行</h3>
-        <p class="tool-name">工具: <code>{{ pendingToolCall.toolCall.name }}</code></p>
-        <div class="tool-args">
-          <p>参数:</p>
-          <pre>{{ JSON.stringify(pendingToolCall.toolCall.args, null, 2) }}</pre>
-        </div>
-        <p class="modal-hint">按 <kbd>Ctrl+Enter</kbd> 确认，<kbd>Esc</kbd> 拒绝</p>
-        <div class="modal-actions">
-          <button class="btn btn-ghost" :disabled="toolApprovalLoading" @click="rejectPendingTool">拒绝</button>
-          <button class="btn btn-primary" :disabled="toolApprovalLoading" @click="approvePendingTool">确认执行</button>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -249,7 +232,6 @@ import { useSidecar } from '../composables/useSidecar'
 import { useConfigStore } from '../stores/configStore'
 import { useChatStore, type ChatMessage } from '../stores/chatStore'
 import { useSkillStore } from '../stores/skillStore'
-import { useAgentStore } from '../stores/agentStore'
 import { apiFetch } from '../utils/http'
 import { renderMarkdown } from '../utils/markdown'
 import { MessageSquare, Trash2, Plus, Bot, User, Copy, RotateCcw, Edit2, StopCircle, Download, ImageIcon, GitBranch } from 'lucide-vue-next'
@@ -260,7 +242,6 @@ const router = useRouter()
 const configStore = useConfigStore()
 const chatStore = useChatStore()
 const skillStore = useSkillStore()
-const agentStore = useAgentStore()
 
 // 注入全局 Toast
 const showToast = inject<(message: string, type?: 'success' | 'error' | 'info') => void>('showToast', () => {})
@@ -295,28 +276,6 @@ let currentAbortController: AbortController | null = null
 const sidecarOwnerId = `chat-${crypto.randomUUID()}`
 const attachedSidecarSessionId = ref<string | null>(null)
 
-// 工具执行确认
-const pendingToolCall = computed(() => agentStore.pendingToolCall)
-const toolApprovalLoading = ref(false)
-
-function approvePendingTool() {
-  if (pendingToolCall.value && !toolApprovalLoading.value) {
-    toolApprovalLoading.value = true
-    agentStore.approveToolCall()
-    showToast('已批准工具执行', 'success')
-    toolApprovalLoading.value = false
-  }
-}
-
-function rejectPendingTool() {
-  if (pendingToolCall.value && !toolApprovalLoading.value) {
-    toolApprovalLoading.value = true
-    agentStore.rejectToolCall()
-    showToast('已拒绝工具执行', 'info')
-    toolApprovalLoading.value = false
-  }
-}
-
 // 可用模型列表：仅显示已配置供应商中已启用的模型
 const availableModels = computed(() => {
   return configStore.allEnabledModels()
@@ -348,15 +307,8 @@ function handleGlobalClick(e: MouseEvent) {
   }
 }
 
-function handleKeyDown(e: KeyboardEvent) {
-  if (!pendingToolCall.value) return
-  if (e.key === 'Enter' && e.ctrlKey) {
-    e.preventDefault()
-    approvePendingTool()
-  } else if (e.key === 'Escape') {
-    e.preventDefault()
-    rejectPendingTool()
-  }
+function handleKeyDown(_e: KeyboardEvent) {
+  // 工具确认快捷键已移至 Agent 页面
 }
 
 async function ensureActiveSidecarSession(sessionId: string = activeSidecarSessionId.value) {
@@ -401,7 +353,13 @@ async function syncChatSessionFromRoute() {
   if (sessionId !== chatStore.currentConversationId) {
     editingMessageId.value = null
   }
-  if (sessionId && chatStore.currentConversationId !== sessionId) {
+  if (!sessionId) {
+    // 无 sessionId（如从 Agent 切换过来的 /chat 空路由），清除残留的会话数据
+    chatStore.currentConversationId = null
+    chatStore.messages = []
+    return
+  }
+  if (chatStore.currentConversationId !== sessionId) {
     await chatStore.loadConversation(sessionId)
   }
   if (!chatStore.currentProviderId && selectedProvider.value?.id) {
